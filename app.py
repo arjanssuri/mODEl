@@ -153,6 +153,69 @@ tab_labels = [
 # Main content area with tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_labels)
 
+# Sidebar for configuration
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    
+    # Optimization method selection
+    opt_method = st.selectbox(
+        "Optimization Method",
+        ["L-BFGS-B", "Nelder-Mead", "SLSQP", "Powell", "TNC", "Differential Evolution"],
+        help="Select the optimization algorithm for parameter fitting"
+    )
+    
+    # Tolerance settings
+    st.subheader("Convergence Settings")
+    tol = st.number_input("Tolerance", value=1e-8, format="%.2e", help="Convergence tolerance")
+    max_iter = st.number_input("Max Iterations", value=1000, min_value=100, step=100)
+    
+    # Advanced options
+    st.subheader("Advanced Options")
+    use_relative_error = st.checkbox("Use Relative Error", value=True, help="Use relative error instead of absolute error")
+    multi_start = st.checkbox("Multi-start Optimization", value=False)
+    if multi_start:
+        n_starts = st.number_input("Number of starts", value=10, min_value=2, max_value=100)
+    
+    # Bootstrap settings
+    st.subheader("Bootstrap Analysis")
+    enable_bootstrap = st.checkbox("Enable Bootstrap Analysis", value=False)
+    if enable_bootstrap:
+        n_bootstrap = st.number_input("Bootstrap Samples", value=100, min_value=10, max_value=1000)
+        bootstrap_method = st.selectbox("Bootstrap Method", ["Residual Resampling", "Parametric Bootstrap"])
+    
+    # Plot settings
+    st.subheader("Visualization Settings")
+    plot_style = st.selectbox("Plot Style", ["seaborn", "plotly"])
+    show_phase_portrait = st.checkbox("Show Phase Portrait (2D systems)", value=False)
+    show_distributions = st.checkbox("Show Parameter Distributions", value=False)
+    
+    # Completion status display
+    st.subheader("📋 Progress Tracker")
+    completion = get_completion_status()
+    
+    progress_items = [
+        ("📁 Data Upload", completion['data_upload']),
+        ("🧬 ODE Definition", completion['ode_definition']),
+        ("📊 Model Fitting", completion['model_fitting']),
+        ("📈 Results Available", completion['results']),
+        ("🎯 Bootstrap Done", completion['bootstrap'])
+    ]
+    
+    for item, is_complete in progress_items:
+        if is_complete:
+            st.success(f"✅ {item}")
+        else:
+            st.info(f"⏳ {item}")
+    
+    # Overall progress
+    completed_steps = sum(completion.values())
+    total_steps = len(completion)
+    progress_percentage = (completed_steps / total_steps) * 100
+    
+    st.subheader("Overall Progress")
+    st.progress(progress_percentage / 100)
+    st.markdown(f"**{completed_steps}/{total_steps} steps completed ({progress_percentage:.0f}%)**")
+
 # Tab 1: Enhanced Data Upload
 with tab1:
     st.header("Upload Experimental Data")
@@ -524,34 +587,139 @@ with tab2:
         if ode_code:
             st.session_state.ode_system = ode_code
             
+            # Auto-detect state variables from ODE code
+            def detect_state_variables(ode_code):
+                """Detect the number of state variables from ODE code"""
+                lines = ode_code.strip().split('\n')
+                max_y_index = -1
+                unpacked_vars = []
+                
+                for line in lines:
+                    line = line.strip()
+                    
+                    # Check for variable unpacking (e.g., "T, R, I, V, F = y")
+                    if '= y' in line and not line.startswith('#'):
+                        # Extract variable names before = y
+                        var_part = line.split('= y')[0].strip()
+                        # Remove any comments
+                        var_part = var_part.split('#')[0].strip()
+                        # Split by comma and clean up
+                        if ',' in var_part:
+                            unpacked_vars = [v.strip() for v in var_part.split(',')]
+                            return len(unpacked_vars), unpacked_vars
+                    
+                    # Check for y[i] indexing
+                    import re
+                    y_indices = re.findall(r'y\[(\d+)\]', line)
+                    for idx_str in y_indices:
+                        idx = int(idx_str)
+                        max_y_index = max(max_y_index, idx)
+                
+                # If we found y[i] indices, return max_index + 1
+                if max_y_index >= 0:
+                    return max_y_index + 1, []
+                
+                # If no clear detection, return 1 as default
+                return 1, []
+            
+            n_vars_detected, var_names = detect_state_variables(ode_code)
+            
+            # Update session state with detected variables
+            st.session_state.auto_detected_vars = n_vars_detected
+            st.session_state.auto_detected_var_names = var_names
+            
             # Extract parameter names
             param_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b'
             all_names = re.findall(param_pattern, ode_code)
-            # Filter out common Python keywords and variables
+            # Filter out common Python keywords, variables, and detected variable names
             exclude = {'y', 'dydt', 'return', 'def', 'if', 'else', 'for', 'while', 'in', 'and', 'or', 'not', 't', 'N', 
                       'dTdt', 'dRdt', 'dIdt', 'dVdt', 'dFdt', 'T', 'R', 'I', 'V', 'F', 'dxdt', 'dx', 'dt'}
+            exclude.update(var_names)  # Add detected variable names to exclusion
             param_names = list(set(all_names) - exclude)
             
             if param_names:
                 st.session_state.param_names = sorted(param_names)
-                st.success(f"Detected parameters: {', '.join(st.session_state.param_names)}")
+                
+                # Display detection results
+                col_detect1, col_detect2 = st.columns(2)
+                with col_detect1:
+                    st.success(f"🔍 **Auto-detected {n_vars_detected} state variables**")
+                    if var_names:
+                        st.info(f"Variable names: {', '.join(var_names)}")
+                    else:
+                        st.info(f"Using y[0] through y[{n_vars_detected-1}]")
+                
+                with col_detect2:
+                    st.success(f"📊 **Detected {len(param_names)} parameters**")
+                    st.info(f"Parameters: {', '.join(param_names)}")
+            else:
+                st.warning("No parameters detected. Please check your ODE system.")
     
     with col2:
         st.subheader("Initial Conditions & Data Mapping")
         
         if st.session_state.datasets:
-            # Get number of variables from ODE system
-            if st.session_state.ode_system:
-                # Try to determine number of variables
-                n_vars = st.number_input("Number of state variables", value=1, min_value=1, max_value=10)
+            # Get number of variables from auto-detection
+            if st.session_state.ode_system and hasattr(st.session_state, 'auto_detected_vars'):
+                n_vars = st.session_state.auto_detected_vars
+                var_names = st.session_state.auto_detected_var_names
+                
+                # Option to override auto-detection
+                with st.expander("🔧 Override Auto-Detection"):
+                    st.markdown("**Auto-detection found:** " + 
+                              (f"{n_vars} variables ({', '.join(var_names)})" if var_names else f"{n_vars} variables (y[0] to y[{n_vars-1}])"))
+                    
+                    override_detection = st.checkbox("Override auto-detection", value=False)
+                    if override_detection:
+                        n_vars = st.number_input("Manual number of state variables", value=n_vars, min_value=1, max_value=10)
+                        st.info(f"Using manual setting: {n_vars} variables")
                 
                 st.write("**Initial Conditions:**")
+                st.markdown(f"*Setting initial conditions for {n_vars} state variables*")
+                
                 initial_conditions = []
-                for i in range(n_vars):
-                    ic = st.number_input(f"y[{i}](0)", value=0.0, key=f"ic_{i}")
-                    initial_conditions.append(ic)
+                
+                # Create initial condition inputs
+                if n_vars <= 3:
+                    # Single row for 1-3 variables
+                    cols = st.columns(n_vars)
+                    for i in range(n_vars):
+                        with cols[i]:
+                            if var_names and i < len(var_names):
+                                label = f"{var_names[i]}(0)"
+                                help_text = f"Initial condition for {var_names[i]}"
+                            else:
+                                label = f"y[{i}](0)"
+                                help_text = f"Initial condition for y[{i}]"
+                            
+                            ic = st.number_input(label, value=0.0, key=f"ic_{i}", help=help_text)
+                            initial_conditions.append(ic)
+                else:
+                    # Multiple rows for >3 variables
+                    for i in range(n_vars):
+                        if var_names and i < len(var_names):
+                            label = f"{var_names[i]}(0)"
+                            help_text = f"Initial condition for {var_names[i]}"
+                        else:
+                            label = f"y[{i}](0)"
+                            help_text = f"Initial condition for y[{i}]"
+                        
+                        ic = st.number_input(label, value=0.0, key=f"ic_{i}", help=help_text)
+                        initial_conditions.append(ic)
                 
                 st.session_state.initial_conditions = initial_conditions
+                
+                # Display current initial conditions summary
+                with st.expander("📋 Initial Conditions Summary"):
+                    ic_summary = []
+                    for i, ic in enumerate(initial_conditions):
+                        if var_names and i < len(var_names):
+                            ic_summary.append(f"{var_names[i]}(0) = {ic}")
+                        else:
+                            ic_summary.append(f"y[{i}](0) = {ic}")
+                    st.markdown("**Current Initial Conditions:**")
+                    for summary in ic_summary:
+                        st.markdown(f"- {summary}")
                 
                 # Data mapping
                 st.write("**Data Mapping:**")
@@ -559,15 +727,46 @@ with tab2:
                 
                 dataset_mapping = {}
                 for dataset_name in st.session_state.datasets.keys():
-                    var_index = st.selectbox(
-                        f"Map '{dataset_name}' to variable:",
-                        range(n_vars),
-                        format_func=lambda x: f"y[{x}]",
+                    st.markdown(f"**Map '{dataset_name}' to:**")
+                    
+                    # Create options for mapping
+                    mapping_options = []
+                    mapping_values = []
+                    
+                    for i in range(n_vars):
+                        if var_names and i < len(var_names):
+                            option_label = f"{var_names[i]} (state variable {i})"
+                            mapping_options.append(option_label)
+                        else:
+                            option_label = f"y[{i}] (state variable {i})"
+                            mapping_options.append(option_label)
+                        mapping_values.append(i)
+                    
+                    selected_idx = st.selectbox(
+                        f"Variable for {dataset_name}:",
+                        range(len(mapping_options)),
+                        format_func=lambda x: mapping_options[x],
                         key=f"map_{dataset_name}"
                     )
-                    dataset_mapping[dataset_name] = var_index
+                    
+                    dataset_mapping[dataset_name] = mapping_values[selected_idx]
                 
                 st.session_state.dataset_mapping = dataset_mapping
+                
+                # Display mapping summary
+                with st.expander("📊 Data Mapping Summary"):
+                    st.markdown("**Current Mappings:**")
+                    for dataset, var_idx in dataset_mapping.items():
+                        if var_names and var_idx < len(var_names):
+                            var_name = var_names[var_idx]
+                            st.markdown(f"- **{dataset}** → {var_name} (y[{var_idx}])")
+                        else:
+                            st.markdown(f"- **{dataset}** → y[{var_idx}]")
+            
+            else:
+                st.warning("Please define your ODE system first to auto-detect state variables.")
+        else:
+            st.info("Please upload datasets first to configure initial conditions and data mapping.")
 
 # Tab 3: Enhanced Model Fitting
 with tab3:
