@@ -31,9 +31,20 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         height: 50px;
         white-space: pre-wrap;
-        background-color: #f0f2f6;
+        background-color: #0066CC !important;
+        color: white !important;
         border-radius: 10px;
         padding: 10px 20px;
+        border: none !important;
+        font-weight: bold !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #0052A3 !important;
+        color: white !important;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #0080FF !important;
+        color: white !important;
     }
     .parameter-card {
         background-color: #f0f2f6;
@@ -55,7 +66,11 @@ st.markdown("""
         padding: 15px;
         margin: 10px 0;
     }
-    /* Make buttons blue instead of black/red */
+    .completion-indicator {
+        color: #28a745;
+        font-weight: bold;
+    }
+    /* Regular buttons remain unchanged */
     .stButton > button {
         background-color: #0066CC !important;
         color: white !important;
@@ -112,51 +127,31 @@ if 'fit_results' not in st.session_state:
 if 'bootstrap_results' not in st.session_state:
     st.session_state.bootstrap_results = None
 
-# Sidebar for configuration
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    
-    # Optimization method selection
-    opt_method = st.selectbox(
-        "Optimization Method",
-        ["L-BFGS-B", "Nelder-Mead", "SLSQP", "Powell", "TNC", "Differential Evolution"],
-        help="Select the optimization algorithm for parameter fitting"
-    )
-    
-    # Tolerance settings
-    st.subheader("Convergence Settings")
-    tol = st.number_input("Tolerance", value=1e-8, format="%.2e", help="Convergence tolerance")
-    max_iter = st.number_input("Max Iterations", value=1000, min_value=100, step=100)
-    
-    # Advanced options
-    st.subheader("Advanced Options")
-    use_relative_error = st.checkbox("Use Relative Error", value=True, help="Use relative error instead of absolute error")
-    multi_start = st.checkbox("Multi-start Optimization", value=False)
-    if multi_start:
-        n_starts = st.number_input("Number of starts", value=10, min_value=2, max_value=100)
-    
-    # Bootstrap settings
-    st.subheader("Bootstrap Analysis")
-    enable_bootstrap = st.checkbox("Enable Bootstrap Analysis", value=False)
-    if enable_bootstrap:
-        n_bootstrap = st.number_input("Bootstrap Samples", value=100, min_value=10, max_value=1000)
-        bootstrap_method = st.selectbox("Bootstrap Method", ["Residual Resampling", "Parametric Bootstrap"])
-    
-    # Plot settings
-    st.subheader("Visualization Settings")
-    plot_style = st.selectbox("Plot Style", ["seaborn", "plotly"])
-    show_phase_portrait = st.checkbox("Show Phase Portrait (2D systems)", value=False)
-    show_distributions = st.checkbox("Show Parameter Distributions", value=False)
+# Function to check completion status
+def get_completion_status():
+    return {
+        'data_upload': len(st.session_state.datasets) > 0,
+        'ode_definition': bool(st.session_state.ode_system and st.session_state.param_names),
+        'model_fitting': st.session_state.fit_results is not None,
+        'results': st.session_state.fit_results is not None,
+        'bootstrap': st.session_state.bootstrap_results is not None
+    }
+
+# Get completion status
+completion = get_completion_status()
+
+# Create tab labels with completion indicators
+tab_labels = [
+    f"📁 Data Upload{'✅' if completion['data_upload'] else ''}",
+    f"🧬 ODE Definition{'✅' if completion['ode_definition'] else ''}",
+    f"📊 Model Fitting{'✅' if completion['model_fitting'] else ''}",
+    f"📈 Results{'✅' if completion['results'] else ''}",
+    f"🎯 Bootstrap Analysis{'✅' if completion['bootstrap'] else ''}",
+    "📚 Examples"
+]
 
 # Main content area with tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📁 Data Upload", 
-    "🧬 ODE Definition", 
-    "📊 Model Fitting", 
-    "📈 Results", 
-    "🎯 Bootstrap Analysis",
-    "📚 Examples"
-])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_labels)
 
 # Tab 1: Enhanced Data Upload
 with tab1:
@@ -309,12 +304,170 @@ with tab1:
         plt.tight_layout()
         st.pyplot(fig)
         
-        # Data statistics
-        with st.expander("📊 Data Statistics"):
+        # Enhanced Data statistics with clickable table
+        st.subheader("📊 Dataset Statistics")
+        
+        # Create summary statistics table
+        if st.button("📋 Show/Hide Detailed Statistics Table", key="stats_table_toggle"):
+            if 'show_stats_table' not in st.session_state:
+                st.session_state.show_stats_table = False
+            st.session_state.show_stats_table = not st.session_state.show_stats_table
+        
+        # Show basic summary always
+        st.markdown("**Quick Summary:**")
+        summary_cols = st.columns(len(st.session_state.datasets))
+        for i, (name, data) in enumerate(st.session_state.datasets.items()):
+            with summary_cols[i]:
+                st.metric(f"{name} Points", len(data))
+                st.metric(f"{name} Time Range", f"{data['time'].min():.2f} - {data['time'].max():.2f}")
+                st.metric(f"{name} Value Range", f"{data['value'].min():.2f} - {data['value'].max():.2f}")
+        
+        # Show detailed statistics table if toggled
+        if hasattr(st.session_state, 'show_stats_table') and st.session_state.show_stats_table:
+            st.markdown("**📋 Detailed Statistics Table:**")
+            
+            # Create comprehensive statistics
+            stats_data = []
             for name, data in st.session_state.datasets.items():
-                st.write(f"**{name}**")
-                st.write(data.describe())
-                st.write("---")
+                stats_data.append({
+                    'Dataset': name,
+                    'Count': len(data),
+                    'Time Min': data['time'].min(),
+                    'Time Max': data['time'].max(),
+                    'Time Range': data['time'].max() - data['time'].min(),
+                    'Time Mean': data['time'].mean(),
+                    'Time Std': data['time'].std(),
+                    'Value Min': data['value'].min(),
+                    'Value Max': data['value'].max(),
+                    'Value Range': data['value'].max() - data['value'].min(),
+                    'Value Mean': data['value'].mean(),
+                    'Value Std': data['value'].std(),
+                    'Value Median': data['value'].median(),
+                    'Value Q25': data['value'].quantile(0.25),
+                    'Value Q75': data['value'].quantile(0.75),
+                    'Value Skew': data['value'].skew(),
+                    'Value Kurtosis': data['value'].kurtosis(),
+                    'Missing Values': data.isnull().sum().sum(),
+                    'Duplicate Rows': data.duplicated().sum()
+                })
+            
+            stats_df = pd.DataFrame(stats_data)
+            
+            # Display with formatting
+            st.dataframe(
+                stats_df.style.format({
+                    'Time Min': '{:.4f}',
+                    'Time Max': '{:.4f}',
+                    'Time Range': '{:.4f}',
+                    'Time Mean': '{:.4f}',
+                    'Time Std': '{:.4f}',
+                    'Value Min': '{:.4f}',
+                    'Value Max': '{:.4f}',
+                    'Value Range': '{:.4f}',
+                    'Value Mean': '{:.4f}',
+                    'Value Std': '{:.4f}',
+                    'Value Median': '{:.4f}',
+                    'Value Q25': '{:.4f}',
+                    'Value Q75': '{:.4f}',
+                    'Value Skew': '{:.4f}',
+                    'Value Kurtosis': '{:.4f}'
+                }),
+                use_container_width=True
+            )
+            
+            # Export statistics option
+            if st.button("📥 Export Statistics Table", key="export_stats"):
+                csv_buffer = io.StringIO()
+                stats_df.to_csv(csv_buffer, index=False)
+                st.download_button(
+                    label="Download Statistics CSV",
+                    data=csv_buffer.getvalue(),
+                    file_name=f"dataset_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+            
+            # Individual dataset detailed views
+            st.markdown("**🔍 Individual Dataset Details:**")
+            selected_dataset = st.selectbox("Select dataset for detailed analysis:", 
+                                          list(st.session_state.datasets.keys()),
+                                          key="detailed_dataset_select")
+            
+            if selected_dataset:
+                data = st.session_state.datasets[selected_dataset]
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown(f"**{selected_dataset} - Raw Data Preview:**")
+                    st.dataframe(data.head(10), use_container_width=True)
+                    st.markdown(f"**{selected_dataset} - Descriptive Statistics:**")
+                    st.dataframe(data.describe(), use_container_width=True)
+                
+                with col2:
+                    st.markdown(f"**{selected_dataset} - Data Distribution:**")
+                    
+                    # Create distribution plot
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+                    
+                    # Time distribution
+                    ax1.hist(data['time'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                    ax1.set_xlabel('Time')
+                    ax1.set_ylabel('Frequency')
+                    ax1.set_title(f'{selected_dataset} - Time Distribution')
+                    ax1.grid(True, alpha=0.3)
+                    
+                    # Value distribution
+                    ax2.hist(data['value'], bins=20, alpha=0.7, color='lightcoral', edgecolor='black')
+                    ax2.set_xlabel('Value')
+                    ax2.set_ylabel('Frequency')
+                    ax2.set_title(f'{selected_dataset} - Value Distribution')
+                    ax2.grid(True, alpha=0.3)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    
+                    # Data quality checks
+                    st.markdown(f"**{selected_dataset} - Data Quality:**")
+                    quality_checks = {
+                        'Missing Values': data.isnull().sum().sum(),
+                        'Duplicate Rows': data.duplicated().sum(),
+                        'Negative Values': (data['value'] < 0).sum(),
+                        'Zero Values': (data['value'] == 0).sum(),
+                        'Infinite Values': np.isinf(data['value']).sum(),
+                        'Monotonic Time': data['time'].is_monotonic_increasing,
+                        'Unique Time Points': len(data['time'].unique()),
+                        'Time Gaps > Mean': ((data['time'].diff() > data['time'].diff().mean() * 2).sum() - 1)
+                    }
+                    
+                    for check, value in quality_checks.items():
+                        if check == 'Monotonic Time':
+                            st.metric(check, "✅ Yes" if value else "❌ No")
+                        else:
+                            st.metric(check, value)
+        
+        # Data validation warnings
+        st.subheader("⚠️ Data Validation")
+        validation_issues = []
+        
+        for name, data in st.session_state.datasets.items():
+            # Check for common issues
+            if data.isnull().sum().sum() > 0:
+                validation_issues.append(f"❌ {name}: Contains {data.isnull().sum().sum()} missing values")
+            if data.duplicated().sum() > 0:
+                validation_issues.append(f"⚠️ {name}: Contains {data.duplicated().sum()} duplicate rows")
+            if (data['value'] < 0).sum() > 0:
+                validation_issues.append(f"⚠️ {name}: Contains {(data['value'] < 0).sum()} negative values")
+            if not data['time'].is_monotonic_increasing:
+                validation_issues.append(f"⚠️ {name}: Time points are not monotonically increasing")
+            if len(data) < 5:
+                validation_issues.append(f"⚠️ {name}: Very few data points ({len(data)}), consider adding more")
+        
+        if validation_issues:
+            st.warning("**Data Validation Issues Found:**")
+            for issue in validation_issues:
+                st.markdown(f"- {issue}")
+        else:
+            st.success("✅ All datasets passed validation checks!")
 
 # Tab 2: ODE Definition (updated for multi-dataset)
 with tab2:
