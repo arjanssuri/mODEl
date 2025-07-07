@@ -1316,7 +1316,19 @@ with tab5:
             
             confidence_level = st.selectbox("Confidence Level", [90, 95, 99], index=1)
             
+            # Log display settings
+            st.subheader("📋 Log Display Settings")
+            log_frequency = st.selectbox("Log Every N Samples", [1, 5, 10, 20, 50], index=2)
+            max_logs_display = st.number_input("Max Logs to Display", 
+                                             value=10, min_value=5, max_value=50, 
+                                             help="Maximum number of recent logs to show during analysis")
+            
             if st.button("🎯 Run Bootstrap Analysis", type="primary"):
+                # Initialize session state for bootstrap logs
+                if 'bootstrap_logs' not in st.session_state:
+                    st.session_state.bootstrap_logs = []
+                st.session_state.bootstrap_logs = []  # Clear previous logs
+                
                 with st.spinner(f"Running bootstrap analysis with {n_bootstrap_samples} samples..."):
                     try:
                         # Create ODE function
@@ -1391,9 +1403,16 @@ def ode_system(y, t, {', '.join(param_names)}):
                             except:
                                 return 1e12
                         
-                        # Run bootstrap
+                        # Run bootstrap with real-time logging
                         bootstrap_params = []
                         progress_bar = st.progress(0)
+                        
+                        # Create placeholder for real-time logs in the right column
+                        with col2:
+                            st.subheader("🔄 Live Bootstrap Progress")
+                            status_placeholder = st.empty()
+                            logs_placeholder = st.empty()
+                            metrics_placeholder = st.empty()
                         
                         for i in range(n_bootstrap_samples):
                             # Create bootstrap datasets
@@ -1427,15 +1446,53 @@ def ode_system(y, t, {', '.join(param_names)}):
                             
                             bootstrap_params.append(result.x)
                             progress_bar.progress((i + 1) / n_bootstrap_samples)
+                            
+                            # Log at specified frequency
+                            if (i + 1) % log_frequency == 0 or i == 0:
+                                current_params = dict(zip(st.session_state.param_names, result.x))
+                                log_entry = {
+                                    'iteration': i + 1,
+                                    'cost': result.fun,
+                                    'params': current_params,
+                                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                                }
+                                st.session_state.bootstrap_logs.append(log_entry)
+                                
+                                # Update real-time displays
+                                with status_placeholder.container():
+                                    st.markdown(f"**Current Status:** Processing sample {i + 1}/{n_bootstrap_samples}")
+                                    st.markdown(f"**Latest Cost:** {result.fun:.4e}")
+                                    st.markdown(f"**Time:** {log_entry['timestamp']}")
+                                
+                                # Display recent logs (limited by max_logs_display)
+                                with logs_placeholder.container():
+                                    st.markdown("**📋 Recent Bootstrap Logs:**")
+                                    recent_logs = st.session_state.bootstrap_logs[-max_logs_display:]
+                                    
+                                    for log in reversed(recent_logs):
+                                        with st.expander(f"Sample #{log['iteration']} - {log['timestamp']} (Cost: {log['cost']:.4e})", expanded=False):
+                                            st.write("**Parameters:**")
+                                            for param, value in log['params'].items():
+                                                st.write(f"- {param}: {value:.6e}")
+                                
+                                # Update metrics
+                                if len(st.session_state.bootstrap_logs) > 0:
+                                    with metrics_placeholder.container():
+                                        st.markdown("**📊 Running Statistics:**")
+                                        costs = [log['cost'] for log in st.session_state.bootstrap_logs]
+                                        col_a, col_b, col_c = st.columns(3)
+                                        col_a.metric("Samples", len(st.session_state.bootstrap_logs))
+                                        col_b.metric("Best Cost", f"{min(costs):.4e}")
+                                        col_c.metric("Mean Cost", f"{np.mean(costs):.4e}")
                         
                         progress_bar.empty()
                         
-                        # Calculate statistics
+                        # Calculate statistics - FIX THE CONFIDENCE INTERVAL BUG
                         bootstrap_params = np.array(bootstrap_params)
                         
                         alpha = (100 - confidence_level) / 100
                         ci_lower = (alpha / 2) * 100
-                        ci_upper = (100 - alpha / 2) * 100
+                        ci_upper = (1 - alpha / 2) * 100  # Fixed: should be (1 - alpha/2) * 100
                         
                         bootstrap_stats = {}
                         for i, param in enumerate(st.session_state.param_names):
@@ -1457,15 +1514,31 @@ def ode_system(y, t, {', '.join(param_names)}):
                             'method': bootstrap_method
                         }
                         
-                        st.success("✅ Bootstrap analysis completed!")
+                        # Clear the live progress display and show completion
+                        with col2:
+                            st.success("✅ Bootstrap analysis completed!")
                         
                     except Exception as e:
                         st.error(f"Error during bootstrap analysis: {str(e)}")
                         st.exception(e)
         
         with col2:
+            if not hasattr(st.session_state, 'bootstrap_logs') or not st.session_state.bootstrap_logs:
+                st.subheader("Bootstrap Progress & Logs")
+                st.info("👆 Configure bootstrap settings and click 'Run Bootstrap Analysis' to see live progress here.")
+                st.markdown("""
+                **Features:**
+                - 🔄 Real-time progress updates
+                - 📋 Live parameter logs
+                - 📊 Running statistics
+                - ⚙️ Configurable log frequency
+                - 🎯 Adjustable display limits
+                """)
+            
+            # Show final bootstrap results if available
             if st.session_state.bootstrap_results:
-                st.subheader("Bootstrap Results")
+                st.markdown("---")
+                st.subheader("Final Bootstrap Results")
                 
                 # Summary statistics
                 stats_data = []
@@ -1481,7 +1554,35 @@ def ode_system(y, t, {', '.join(param_names)}):
                 
                 stats_df = pd.DataFrame(stats_data)
                 st.dataframe(stats_df, use_container_width=True)
-        
+                
+                # Export bootstrap results
+                if st.button("📥 Export Bootstrap Results"):
+                    bootstrap_export = f"""# Bootstrap Analysis Results
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Configuration
+- Bootstrap samples: {st.session_state.bootstrap_results['n_samples']}
+- Confidence level: {st.session_state.bootstrap_results['confidence_level']}%
+- Method: {st.session_state.bootstrap_results['method']}
+
+## Parameter Statistics
+"""
+                    for param, stats in st.session_state.bootstrap_results['stats'].items():
+                        bootstrap_export += f"""
+### {param}
+- Original estimate: {st.session_state.fit_results['params'][param]:.6e}
+- Bootstrap mean: {stats['mean']:.6e}
+- Bootstrap std: {stats['std']:.6e}
+- {st.session_state.bootstrap_results['confidence_level']}% CI: [{stats['ci_lower']:.6e}, {stats['ci_upper']:.6e}]
+"""
+                    
+                    st.download_button(
+                        label="Download Bootstrap Analysis",
+                        data=bootstrap_export,
+                        file_name=f"bootstrap_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                        mime="text/plain"
+                    )
+
         # Parameter distribution plots
         if st.session_state.bootstrap_results and show_distributions:
             st.subheader("Parameter Distribution Analysis")
@@ -1552,7 +1653,7 @@ with tab6:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center'>
-    <p>Advanced ODE Model Fitting Tool | Built with Streamlit 🚀</p>
+    <p>Advanced ODE Model Fitting Tool</p>
     <p><em>Built by Arjan Suri and Sahaj Satani | TCU Dobrovolny Lab</em></p>
 </div>
 """, unsafe_allow_html=True) 
