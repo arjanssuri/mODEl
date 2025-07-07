@@ -48,25 +48,41 @@ st.markdown("""
         padding: 10px;
         margin: 10px 0;
     }
-    /* Make buttons more visible */
+    .bounds-code-area {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 5px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    /* Make buttons blue instead of black/red */
     .stButton > button {
-        background-color: #000000 !important;
+        background-color: #0066CC !important;
         color: white !important;
         border: none !important;
         border-radius: 5px !important;
         font-weight: bold !important;
     }
     .stButton > button:hover {
-        background-color: #333333 !important;
+        background-color: #0052A3 !important;
         color: white !important;
     }
-    /* Primary buttons */
+    /* Primary buttons - brighter blue */
     .stButton > button[kind="primary"] {
-        background-color: #FF4B4B !important;
+        background-color: #0080FF !important;
         color: white !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #FF6B6B !important;
+        background-color: #0066CC !important;
+        color: white !important;
+    }
+    /* Secondary buttons - lighter blue */
+    .stButton > button[kind="secondary"] {
+        background-color: #4DA6FF !important;
+        color: white !important;
+    }
+    .stButton > button[kind="secondary"]:hover {
+        background-color: #3399FF !important;
         color: white !important;
     }
 </style>
@@ -410,6 +426,13 @@ with tab3:
         with col1:
             st.subheader("Parameter Configuration")
             
+            # Parameter bounds input method selection
+            bounds_input_method = st.radio(
+                "Parameter Bounds Input Method",
+                ["Individual Inputs", "Code-based Definition"],
+                help="Choose how to define parameter bounds"
+            )
+            
             bounds = {}
             initial_guesses = {}
             
@@ -420,25 +443,384 @@ with tab3:
                 example_bounds = ODE_EXAMPLES[selected_example].get('bounds', {})
                 example_initial = ODE_EXAMPLES[selected_example].get('initial_guess', {})
             
-            for param in st.session_state.param_names:
-                st.markdown(f"**{param}**")
-                cols = st.columns(3)
-                with cols[0]:
-                    default_lower = example_bounds.get(param, (1e-6, 10.0))[0] if param in example_bounds else 1e-6
-                    lower = st.number_input(f"Lower", value=default_lower, format="%.2e", key=f"lower_{param}")
-                with cols[1]:
-                    default_upper = example_bounds.get(param, (1e-6, 10.0))[1] if param in example_bounds else 10.0
-                    upper = st.number_input(f"Upper", value=default_upper, format="%.2e", key=f"upper_{param}")
-                with cols[2]:
-                    default_initial = example_initial.get(param, 1.0)
-                    initial = st.number_input(f"Initial", value=default_initial, format="%.2e", key=f"initial_{param}")
+            if bounds_input_method == "Code-based Definition":
+                st.markdown("### 🔧 Code-based Parameter Bounds")
+                st.info("""
+                Define parameter bounds using Python dictionary syntax. This allows for:
+                - Easy copy/paste from research papers or existing code
+                - Batch parameter definition
+                - Mathematical expressions for bounds
+                - Comments and documentation
+                - Load from previously saved bounds files
+                """)
                 
-                bounds[param] = (lower, upper)
-                initial_guesses[param] = initial
+                # File upload for bounds configuration
+                col_upload, col_template = st.columns([1, 1])
                 
-                # Display current bounds
-                st.caption(f"Bounds: [{lower:.2e}, {upper:.2e}], Initial: {initial:.2e}")
-                st.markdown("---")
+                with col_upload:
+                    uploaded_bounds_file = st.file_uploader(
+                        "Upload Bounds Configuration File",
+                        type=['py', 'txt'],
+                        help="Upload a Python file containing bounds and initial_guess dictionaries"
+                    )
+                    
+                    if uploaded_bounds_file is not None:
+                        try:
+                            bounds_content = uploaded_bounds_file.read().decode('utf-8')
+                            st.session_state.uploaded_bounds_code = bounds_content
+                            st.success("✅ Bounds file loaded successfully!")
+                        except Exception as e:
+                            st.error(f"❌ Error reading bounds file: {str(e)}")
+                
+                with col_template:
+                    if st.button("📋 Generate Template", key="generate_template"):
+                        template_code = """# Parameter Bounds Configuration Template
+# Save this as a .py file for easy reuse
+
+# Example bounds for common parameters
+bounds = {
+    # Infection/transmission rates
+    'beta': (1e-6, 10.0),
+    'gamma': (1e-6, 10.0),
+    
+    # Growth/decay rates
+    'alpha': (1e-6, 100.0),
+    'delta': (1e-6, 10.0),
+    
+    # Production/clearance rates
+    'p': (0.1, 1000.0),
+    'c': (1e-6, 10.0),
+    
+    # Other parameters
+    'k': (1e-6, 10.0),
+    'K': (1.0, 1000.0),
+    'r': (1e-6, 10.0),
+    'rho': (1e-6, 10.0),
+}
+
+# Initial parameter guesses
+initial_guess = {
+    'beta': 0.5,
+    'gamma': 0.1,
+    'alpha': 1.0,
+    'delta': 0.5,
+    'p': 10.0,
+    'c': 1.0,
+    'k': 1.0,
+    'K': 100.0,
+    'r': 1.0,
+    'rho': 0.1,
+}
+
+# You can also use mathematical expressions:
+# bounds = {
+#     'beta': (1e-6, 2.0),
+#     'gamma': (1e-6, 1.0),
+#     'K': (10.0, 10**3),  # Using exponents
+#     'rate': (1e-6, np.pi),  # Using numpy constants
+# }
+"""
+                        st.download_button(
+                            label="Download Template",
+                            data=template_code,
+                            file_name="bounds_template.py",
+                            mime="text/plain"
+                        )
+                
+                # Default bounds code template
+                default_bounds_code = ""
+                if hasattr(st.session_state, 'uploaded_bounds_code'):
+                    default_bounds_code = st.session_state.uploaded_bounds_code
+                elif st.session_state.param_names:
+                    default_bounds_code = "# Parameter bounds definition\nbounds = {\n"
+                    for param in st.session_state.param_names:
+                        if param in example_bounds:
+                            lower, upper = example_bounds[param]
+                            default_bounds_code += f"    '{param}': ({lower}, {upper}),  # {param} bounds\n"
+                        else:
+                            default_bounds_code += f"    '{param}': (1e-6, 10.0),  # {param} bounds\n"
+                    default_bounds_code += "}\n\n# Initial guesses\ninitial_guess = {\n"
+                    for param in st.session_state.param_names:
+                        if param in example_initial:
+                            guess = example_initial[param]
+                            default_bounds_code += f"    '{param}': {guess},  # {param} initial guess\n"
+                        else:
+                            default_bounds_code += f"    '{param}': 1.0,  # {param} initial guess\n"
+                    default_bounds_code += "}"
+                
+                bounds_code = st.text_area(
+                    "Parameter Bounds Code",
+                    value=default_bounds_code,
+                    height=300,
+                    help="Define bounds and initial guesses using Python dictionary syntax"
+                )
+                
+                # Parse and validate bounds code
+                if bounds_code.strip():
+                    try:
+                        # Create a safe execution environment
+                        exec_globals = {
+                            '__builtins__': {},
+                            'abs': abs, 'min': min, 'max': max,
+                            'round': round, 'int': int, 'float': float,
+                            'pow': pow, 'exp': np.exp, 'log': np.log,
+                            'sqrt': np.sqrt, 'pi': np.pi, 'e': np.e,
+                            'np': np, 'numpy': np
+                        }
+                        exec_locals = {}
+                        
+                        # Execute the bounds code
+                        exec(bounds_code, exec_globals, exec_locals)
+                        
+                        # Extract bounds and initial guesses
+                        if 'bounds' in exec_locals:
+                            parsed_bounds = exec_locals['bounds']
+                            if isinstance(parsed_bounds, dict):
+                                bounds = parsed_bounds
+                                st.success(f"✅ Parsed bounds for {len(bounds)} parameters")
+                                
+                                # Validate bounds
+                                for param, bound in bounds.items():
+                                    if not isinstance(bound, (tuple, list)) or len(bound) != 2:
+                                        st.error(f"❌ Invalid bound format for {param}: {bound}")
+                                        st.info("Bounds should be (lower, upper) tuples")
+                                        break
+                                    elif bound[0] >= bound[1]:
+                                        st.error(f"❌ Invalid bound range for {param}: lower >= upper")
+                                        break
+                            else:
+                                st.error("❌ 'bounds' must be a dictionary")
+                        
+                        if 'initial_guess' in exec_locals:
+                            parsed_initial = exec_locals['initial_guess']
+                            if isinstance(parsed_initial, dict):
+                                initial_guesses = parsed_initial
+                                st.success(f"✅ Parsed initial guesses for {len(initial_guesses)} parameters")
+                            else:
+                                st.error("❌ 'initial_guess' must be a dictionary")
+                        
+                        # Store parsed bounds for export
+                        st.session_state.bounds_code = bounds_code
+                        st.session_state.parsed_bounds = bounds
+                        st.session_state.parsed_initial_guesses = initial_guesses
+                        
+                        # Advanced validation and analysis
+                        if bounds and initial_guesses:
+                            validation_messages = []
+                            
+                            # Check if initial guesses are within bounds
+                            for param in st.session_state.param_names:
+                                if param in bounds and param in initial_guesses:
+                                    lower, upper = bounds[param]
+                                    guess = initial_guesses[param]
+                                    if guess < lower or guess > upper:
+                                        validation_messages.append(f"⚠️ Initial guess for {param} ({guess}) is outside bounds ({lower}, {upper})")
+                                elif param in bounds:
+                                    validation_messages.append(f"⚠️ No initial guess specified for {param}")
+                                elif param in initial_guesses:
+                                    validation_messages.append(f"⚠️ No bounds specified for {param}")
+                            
+                            # Check for very wide or very narrow bounds
+                            for param, (lower, upper) in bounds.items():
+                                if upper / lower > 1e6:
+                                    validation_messages.append(f"⚠️ Very wide bounds for {param} (ratio: {upper/lower:.1e})")
+                                elif upper / lower < 10:
+                                    validation_messages.append(f"ℹ️ Narrow bounds for {param} (ratio: {upper/lower:.1f})")
+                            
+                            if validation_messages:
+                                with st.expander("🔍 Bounds Validation Analysis"):
+                                    for message in validation_messages:
+                                        if message.startswith("⚠️"):
+                                            st.warning(message)
+                                        else:
+                                            st.info(message)
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error parsing bounds code: {str(e)}")
+                        st.info("Check your Python syntax and variable names")
+                        
+                        # Provide helpful debugging information
+                        with st.expander("🔧 Debugging Help"):
+                            st.markdown("""
+                            **Common syntax errors:**
+                            - Missing commas between dictionary items
+                            - Unmatched parentheses or brackets
+                            - Incorrect indentation
+                            - Missing quotes around parameter names
+                            
+                            **Valid examples:**
+                            ```python
+                            bounds = {
+                                'beta': (1e-6, 10.0),
+                                'gamma': (0.01, 1.0),
+                            }
+                            
+                            initial_guess = {
+                                'beta': 0.5,
+                                'gamma': 0.1,
+                            }
+                            ```
+                            """)
+                
+                # Quick load examples
+                with st.expander("🚀 Quick Load Examples"):
+                    st.markdown("**Load predefined bounds configurations for common ODE systems:**")
+                    
+                    example_configs = {
+                        "Viral Dynamics": {
+                            "description": "Bounds for viral infection models",
+                            "code": """# Viral dynamics parameter bounds
+bounds = {
+    'beta': (1e-6, 10.0),    # Infection rate
+    'gamma': (1e-6, 10.0),   # Conversion rate
+    'delta': (1e-6, 10.0),   # Death rate
+    'p': (0.1, 1000.0),      # Production rate
+    'c': (1e-6, 10.0),       # Clearance rate
+    'alpha': (1e-6, 100.0),  # Decay rate
+    'rho': (1e-6, 10.0),     # Reversion rate
+}
+
+initial_guess = {
+    'beta': 0.5,
+    'gamma': 0.1,
+    'delta': 0.5,
+    'p': 10.0,
+    'c': 1.0,
+    'alpha': 1.0,
+    'rho': 0.1,
+}"""
+                        },
+                        "Epidemiological": {
+                            "description": "Bounds for SIR/SEIR models",
+                            "code": """# Epidemiological model bounds
+bounds = {
+    'beta': (0.0, 2.0),      # Transmission rate
+    'gamma': (0.0, 1.0),     # Recovery rate
+    'alpha': (0.0, 1.0),     # Incubation rate
+    'mu': (0.0, 0.1),        # Birth/death rate
+    'nu': (0.0, 0.5),        # Vaccination rate
+}
+
+initial_guess = {
+    'beta': 0.3,
+    'gamma': 0.1,
+    'alpha': 0.2,
+    'mu': 0.01,
+    'nu': 0.05,
+}"""
+                        },
+                        "Chemical Kinetics": {
+                            "description": "Bounds for reaction kinetics",
+                            "code": """# Chemical kinetics bounds
+bounds = {
+    'k1': (1e-6, 100.0),     # First-order rate constant
+    'k2': (1e-6, 100.0),     # Second-order rate constant
+    'K': (1.0, 1000.0),      # Equilibrium constant
+    'Km': (0.1, 100.0),      # Michaelis constant
+    'Vmax': (0.1, 1000.0),   # Maximum velocity
+    'kcat': (1e-3, 1000.0),  # Catalytic constant
+}
+
+initial_guess = {
+    'k1': 1.0,
+    'k2': 0.5,
+    'K': 10.0,
+    'Km': 5.0,
+    'Vmax': 10.0,
+    'kcat': 1.0,
+}"""
+                        },
+                        "Population Dynamics": {
+                            "description": "Bounds for population models",
+                            "code": """# Population dynamics bounds
+bounds = {
+    'r': (0.0, 5.0),         # Growth rate
+    'K': (1.0, 10000.0),     # Carrying capacity
+    'a': (0.0, 10.0),        # Interaction coefficient
+    'b': (0.0, 1.0),         # Conversion efficiency
+    'c': (0.0, 5.0),         # Mortality rate
+    'd': (0.0, 1.0),         # Mortality coefficient
+}
+
+initial_guess = {
+    'r': 1.0,
+    'K': 100.0,
+    'a': 0.1,
+    'b': 0.1,
+    'd': 0.1,
+    'c': 0.5,
+}"""
+                        }
+                    }
+                    
+                    selected_config = st.selectbox(
+                        "Choose a configuration:",
+                        [""] + list(example_configs.keys()),
+                        key="quick_config_select"
+                    )
+                    
+                    if selected_config:
+                        config = example_configs[selected_config]
+                        st.info(f"**{selected_config}:** {config['description']}")
+                        
+                        if st.button(f"Load {selected_config} Configuration", key=f"load_{selected_config}"):
+                            st.session_state.uploaded_bounds_code = config['code']
+                            st.rerun()
+                
+                # Display parsed bounds summary
+                if bounds:
+                    with st.expander("📋 Parsed Bounds Summary"):
+                        bounds_summary = pd.DataFrame([
+                            {
+                                'Parameter': param,
+                                'Lower Bound': bounds.get(param, (0, 0))[0],
+                                'Upper Bound': bounds.get(param, (0, 0))[1],
+                                'Initial Guess': initial_guesses.get(param, 'Not specified')
+                            }
+                            for param in st.session_state.param_names
+                        ])
+                        st.dataframe(bounds_summary, use_container_width=True)
+                        
+                        # Export bounds code
+                        if st.button("📥 Export Bounds Code", key="export_bounds"):
+                            bounds_export = f"""# Parameter Bounds Configuration
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{bounds_code}
+
+# Usage Instructions:
+# 1. Copy this code block
+# 2. Paste into the 'Code-based Definition' section
+# 3. Modify bounds as needed
+# 4. Click 'Run Advanced Model Fitting'
+"""
+                            st.download_button(
+                                label="Download Bounds Configuration",
+                                data=bounds_export,
+                                file_name=f"parameter_bounds_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py",
+                                mime="text/plain"
+                            )
+            else:
+                # Original individual inputs method
+                for param in st.session_state.param_names:
+                    st.markdown(f"**{param}**")
+                    cols = st.columns(3)
+                    with cols[0]:
+                        default_lower = example_bounds.get(param, (1e-6, 10.0))[0] if param in example_bounds else 1e-6
+                        lower = st.number_input(f"Lower", value=default_lower, format="%.2e", key=f"lower_{param}")
+                    with cols[1]:
+                        default_upper = example_bounds.get(param, (1e-6, 10.0))[1] if param in example_bounds else 10.0
+                        upper = st.number_input(f"Upper", value=default_upper, format="%.2e", key=f"upper_{param}")
+                    with cols[2]:
+                        default_initial = example_initial.get(param, 1.0)
+                        initial = st.number_input(f"Initial", value=default_initial, format="%.2e", key=f"initial_{param}")
+                    
+                    bounds[param] = (lower, upper)
+                    initial_guesses[param] = initial
+                    
+                    # Display current bounds
+                    st.caption(f"Bounds: [{lower:.2e}, {upper:.2e}], Initial: {initial:.2e}")
+                    st.markdown("---")
         
         with col2:
             st.subheader("Fitting Options")
@@ -691,6 +1073,16 @@ with tab4:
                     for param, value in st.session_state.fit_results['params'].items():
                         params_str += f"{param}: {value:.6e}\n"
                     params_str += f"\n# Cost: {st.session_state.fit_results['cost']:.6e}\n"
+                    
+                    # Add bounds code if available
+                    if hasattr(st.session_state, 'bounds_code') and st.session_state.bounds_code:
+                        params_str += "\n# Parameter Bounds Code Used\n"
+                        params_str += "# " + "="*50 + "\n"
+                        bounds_lines = st.session_state.bounds_code.split('\n')
+                        for line in bounds_lines:
+                            params_str += f"# {line}\n"
+                        params_str += "# " + "="*50 + "\n"
+                    
                     zip_file.writestr("fitted_parameters.txt", params_str)
                     
                     # Results CSV
@@ -706,6 +1098,52 @@ with tab4:
                         dataset_info += f"  - Time range: {data['time'].min():.2f} - {data['time'].max():.2f}\n"
                         dataset_info += f"  - Value range: {data['value'].min():.2f} - {data['value'].max():.2f}\n"
                     zip_file.writestr("dataset_info.txt", dataset_info)
+                    
+                    # ODE system and bounds configuration
+                    ode_config = "# ODE System Configuration\n"
+                    ode_config += f"# Generated: {timestamp}\n\n"
+                    ode_config += "# ODE System Definition\n"
+                    ode_config += f"# Number of state variables: {len(st.session_state.initial_conditions)}\n"
+                    ode_config += f"# Initial conditions: {st.session_state.initial_conditions}\n\n"
+                    ode_config += "# ODE Code:\n"
+                    ode_lines = st.session_state.ode_system.split('\n')
+                    for line in ode_lines:
+                        ode_config += f"# {line}\n"
+                    
+                    # Add bounds code if available
+                    if hasattr(st.session_state, 'bounds_code') and st.session_state.bounds_code:
+                        ode_config += "\n# Parameter Bounds Code:\n"
+                        ode_config += st.session_state.bounds_code
+                    
+                    zip_file.writestr("ode_configuration.py", ode_config)
+                    
+                    # Analysis summary
+                    analysis_summary = f"""# Analysis Summary
+# Generated: {timestamp}
+
+## Model Information
+- Number of parameters: {len(st.session_state.param_names)}
+- Parameters: {', '.join(st.session_state.param_names)}
+- Number of datasets: {len(st.session_state.datasets)}
+- Datasets: {', '.join(st.session_state.datasets.keys())}
+
+## Optimization Results
+- Final cost: {st.session_state.fit_results['cost']:.6e}
+- Optimization successful: {st.session_state.fit_results['success']}
+- Optimization method: {st.session_state.fit_results.get('method', 'Not specified')}
+
+## Fitted Parameters
+"""
+                    for param, value in st.session_state.fit_results['params'].items():
+                        analysis_summary += f"- {param}: {value:.6e}\n"
+                    
+                    if hasattr(st.session_state, 'bootstrap_results') and st.session_state.bootstrap_results:
+                        analysis_summary += "\n## Bootstrap Analysis\n"
+                        analysis_summary += f"- Bootstrap samples: {st.session_state.bootstrap_results['n_samples']}\n"
+                        analysis_summary += f"- Confidence level: {st.session_state.bootstrap_results['confidence_level']}%\n"
+                        analysis_summary += f"- Bootstrap method: {st.session_state.bootstrap_results['method']}\n"
+                    
+                    zip_file.writestr("analysis_summary.md", analysis_summary)
                 
                 zip_buffer.seek(0)
                 st.download_button(
