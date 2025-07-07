@@ -48,6 +48,27 @@ st.markdown("""
         padding: 10px;
         margin: 10px 0;
     }
+    /* Make buttons more visible */
+    .stButton > button {
+        background-color: #000000 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 5px !important;
+        font-weight: bold !important;
+    }
+    .stButton > button:hover {
+        background-color: #333333 !important;
+        color: white !important;
+    }
+    /* Primary buttons */
+    .stButton > button[kind="primary"] {
+        background-color: #FF4B4B !important;
+        color: white !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #FF6B6B !important;
+        color: white !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -133,30 +154,92 @@ with tab1:
     
     with col1:
         # Dynamic dataset upload
-        dataset_name = st.text_input("Dataset Name", placeholder="e.g., viral_load, interferon")
         uploaded_file = st.file_uploader(
             "Choose a file (txt or csv)",
             type=['txt', 'csv'],
             help="Upload experimental data with 'time' and 'value' columns"
         )
         
+        # Auto-detect dataset name from filename
+        if uploaded_file is not None:
+            # Extract filename without extension for default dataset name
+            default_name = uploaded_file.name.rsplit('.', 1)[0]
+            dataset_name = st.text_input("Dataset Name", value=default_name, placeholder="e.g., viral_load, interferon")
+        else:
+            dataset_name = st.text_input("Dataset Name", placeholder="e.g., viral_load, interferon")
+        
         if uploaded_file is not None and dataset_name:
             try:
-                # Read the file
+                # Read the file with better parsing
                 if uploaded_file.name.endswith('.csv'):
                     data = pd.read_csv(uploaded_file)
                 else:
-                    data = pd.read_csv(uploaded_file, delimiter='\t')
+                    # Try different delimiters for TXT files
+                    content = uploaded_file.read().decode('utf-8')
+                    uploaded_file.seek(0)  # Reset file pointer
+                    
+                    # Detect delimiter
+                    if '\t' in content:
+                        data = pd.read_csv(uploaded_file, delimiter='\t')
+                    elif ',' in content:
+                        data = pd.read_csv(uploaded_file, delimiter=',')
+                    elif ';' in content:
+                        data = pd.read_csv(uploaded_file, delimiter=';')
+                    elif ' ' in content:
+                        data = pd.read_csv(uploaded_file, delimiter=r'\s+', engine='python')
+                    else:
+                        data = pd.read_csv(uploaded_file, delimiter='\t')
                 
-                # Validate columns
-                if 'time' not in data.columns or 'value' not in data.columns:
-                    st.error("Data must have 'time' and 'value' columns")
+                # Clean column names (remove extra whitespace)
+                data.columns = data.columns.str.strip()
+                
+                # Check for required columns (case insensitive)
+                col_names = [col.lower() for col in data.columns]
+                time_col = None
+                value_col = None
+                
+                # Find time column
+                for col in data.columns:
+                    if col.lower() in ['time', 't', 'times']:
+                        time_col = col
+                        break
+                
+                # Find value column
+                for col in data.columns:
+                    if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
+                        value_col = col
+                        break
+                
+                if time_col is None or value_col is None:
+                    st.error(f"Data must have 'time' and 'value' columns. Found columns: {', '.join(data.columns)}")
+                    st.info("Acceptable column names:\n- Time: 'time', 't', 'times'\n- Value: 'value', 'val', 'values', 'concentration', 'conc', 'amount'")
                 else:
-                    st.session_state.datasets[dataset_name] = data
-                    st.success(f"✅ Dataset '{dataset_name}' loaded successfully!")
+                    # Standardize column names
+                    if time_col != 'time':
+                        data = data.rename(columns={time_col: 'time'})
+                    if value_col != 'value':
+                        data = data.rename(columns={value_col: 'value'})
+                    
+                    # Validate data types
+                    data['time'] = pd.to_numeric(data['time'], errors='coerce')
+                    data['value'] = pd.to_numeric(data['value'], errors='coerce')
+                    
+                    # Remove rows with NaN values
+                    data = data.dropna()
+                    
+                    if len(data) == 0:
+                        st.error("No valid data rows found after cleaning")
+                    else:
+                        st.session_state.datasets[dataset_name] = data
+                        st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(data)} data points)")
+                        
+                        # Show column mapping info
+                        if time_col != 'time' or value_col != 'value':
+                            st.info(f"Column mapping: '{time_col}' → time, '{value_col}' → value")
                     
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
+                st.info("Make sure your file has columns for time and values, separated by tabs, commas, or spaces.")
         
         # Remove dataset button
         if st.session_state.datasets:
@@ -352,6 +435,9 @@ with tab3:
                 
                 bounds[param] = (lower, upper)
                 initial_guesses[param] = initial
+                
+                # Display current bounds
+                st.caption(f"Bounds: [{lower:.2e}, {upper:.2e}], Initial: {initial:.2e}")
                 st.markdown("---")
         
         with col2:
@@ -367,6 +453,20 @@ with tab3:
             # Additional fitting options
             use_log_transform = st.checkbox("Use Log Transform for Positive Data", value=False)
             normalize_by_initial = st.checkbox("Normalize by Initial Values", value=False)
+            
+            # Show parameter bounds summary
+            if bounds:
+                st.write("**Parameter Bounds Summary:**")
+                bounds_summary = pd.DataFrame([
+                    {
+                        'Parameter': param,
+                        'Lower Bound': bounds[param][0],
+                        'Upper Bound': bounds[param][1],
+                        'Initial Guess': initial_guesses[param]
+                    }
+                    for param in st.session_state.param_names
+                ])
+                st.dataframe(bounds_summary, use_container_width=True)
             
             # Run fitting button
             if st.button("🚀 Run Advanced Model Fitting", type="primary"):
@@ -921,6 +1021,6 @@ st.markdown("---")
 st.markdown("""
 <div style='text-align: center'>
     <p>Advanced ODE Model Fitting Tool | Built with Streamlit 🚀</p>
-    <p><em>Supports multi-dataset fitting, bootstrap analysis, and comprehensive uncertainty quantification</em></p>
+    <p><em>Built by Arjan Suri and Sahaj Satani | TCU Dobrovolny Lab</em></p>
 </div>
 """, unsafe_allow_html=True) 
