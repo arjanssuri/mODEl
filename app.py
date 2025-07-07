@@ -470,119 +470,181 @@ with tab3:
             
             # Run fitting button
             if st.button("🚀 Run Advanced Model Fitting", type="primary"):
-                with st.spinner("Running optimization..."):
+                # Validation before fitting
+                if not st.session_state.initial_conditions:
+                    st.error("Please set initial conditions first!")
+                elif not st.session_state.dataset_mapping:
+                    st.error("Please map your datasets to state variables first!")
+                else:
+                    # Test ODE function compatibility
                     try:
-                        # Create ODE function
                         def create_ode_func(param_names, ode_code):
+                            # Properly indent the user's ODE code
+                            lines = ode_code.strip().split('\n')
+                            indented_lines = []
+                            for line in lines:
+                                if line.strip():  # Only indent non-empty lines
+                                    indented_lines.append('    ' + line.strip())
+                                else:
+                                    indented_lines.append('')
+                            
+                            indented_code = '\n'.join(indented_lines)
+                            
                             func_code = f"""
 def ode_system(y, t, {', '.join(param_names)}):
-    {ode_code}
+{indented_code}
 """
                             exec(func_code, globals())
                             return globals()['ode_system']
                         
-                        ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
+                        # Test the ODE function with initial conditions
+                        test_ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
+                        test_params = [initial_guesses[param] for param in st.session_state.param_names]
                         
-                        # Prepare all datasets
-                        all_times = []
-                        all_data = []
-                        for dataset_name, data in st.session_state.datasets.items():
-                            all_times.extend(data['time'].values)
-                            all_data.append(data)
+                        # Try to evaluate the ODE at t=0
+                        test_result = test_ode_func(st.session_state.initial_conditions, 0, *test_params)
                         
-                        # Get unique sorted time points
-                        unique_times = sorted(set(all_times))
-                        t_data = np.array(unique_times)
-                        
-                        # Multi-objective optimization function
-                        def objective(params):
-                            try:
-                                # Solve ODE
-                                sol = odeint(ode_func, st.session_state.initial_conditions, t_data, 
-                                           args=tuple(params))
-                                
-                                total_ssr = 0
-                                for dataset_name, data in st.session_state.datasets.items():
-                                    var_idx = st.session_state.dataset_mapping[dataset_name]
-                                    
-                                    # Interpolate model solution to data time points
-                                    model_vals = np.interp(data['time'], t_data, sol[:, var_idx])
-                                    
-                                    # Apply transformations
-                                    if use_log_transform and np.all(data['value'] > 0):
-                                        model_vals = np.log(np.maximum(model_vals, 1e-10))
-                                        data_vals = np.log(data['value'])
-                                    else:
-                                        data_vals = data['value']
-                                    
-                                    # Calculate error
-                                    if use_relative_error:
-                                        error = ((model_vals - data_vals) / (np.abs(data_vals) + 1e-10))**2
-                                    else:
-                                        error = (model_vals - data_vals)**2
-                                    
-                                    # Weight by dataset
-                                    ssr = np.sum(error) * dataset_weights[dataset_name]
-                                    total_ssr += ssr
-                                
-                                return total_ssr
-                            except:
-                                return 1e12
-                        
-                        # Setup optimization
-                        opt_bounds = [bounds[param] for param in st.session_state.param_names]
-                        x0 = [initial_guesses[param] for param in st.session_state.param_names]
-                        
-                        # Run optimization
-                        if multi_start:
-                            best_result = None
-                            best_cost = np.inf
-                            
-                            progress_bar = st.progress(0)
-                            for i in range(n_starts):
-                                # Random initial point
-                                x0_random = []
-                                for (low, high) in opt_bounds:
-                                    if np.isfinite(low) and np.isfinite(high):
-                                        x0_random.append(np.random.uniform(low, high))
-                                    else:
-                                        x0_random.append(np.random.lognormal(0, 1))
-                                
-                                result = minimize(objective, x0_random, method=opt_method, 
-                                                bounds=opt_bounds, options={'maxiter': max_iter})
-                                
-                                if result.fun < best_cost:
-                                    best_result = result
-                                    best_cost = result.fun
-                                
-                                progress_bar.progress((i + 1) / n_starts)
-                            
-                            result = best_result
-                            progress_bar.empty()
+                        # Validate that the result has the correct shape
+                        if len(test_result) != len(st.session_state.initial_conditions):
+                            st.error(f"❌ ODE system mismatch: Your ODE returns {len(test_result)} derivatives but you have {len(st.session_state.initial_conditions)} initial conditions.")
+                            st.info("💡 Make sure the number of derivatives returned matches the number of state variables!")
                         else:
-                            result = minimize(objective, x0, method=opt_method, 
-                                            bounds=opt_bounds, options={'maxiter': max_iter})
-                        
-                        # Store results
-                        st.session_state.fit_results = {
-                            'params': dict(zip(st.session_state.param_names, result.x)),
-                            'cost': result.fun,
-                            'success': result.success,
-                            'message': result.message,
-                            'result_obj': result,
-                            'dataset_weights': dataset_weights,
-                            'fitting_options': {
-                                'use_relative_error': use_relative_error,
-                                'use_log_transform': use_log_transform,
-                                'normalize_by_initial': normalize_by_initial
-                            }
-                        }
-                        
-                        st.success("✅ Model fitting completed!")
-                        
+                            st.success(f"✅ ODE system validated: {len(test_result)} state variables")
+                            
+                    except IndexError as e:
+                        st.error(f"❌ ODE Definition Error: {str(e)}")
+                        st.error("This usually means your ODE code is trying to access more components of 'y' than you have initial conditions.")
+                        st.info(f"💡 You have {len(st.session_state.initial_conditions)} initial conditions, but your ODE code tries to access y[{str(e).split('index ')[1].split(' is')[0]}]")
+                        st.info("Fix: Either increase the number of state variables or modify your ODE code.")
                     except Exception as e:
-                        st.error(f"Error during fitting: {str(e)}")
-                        st.exception(e)
+                        st.error(f"❌ ODE Validation Error: {str(e)}")
+                        st.info("Please check your ODE system definition and parameter names.")
+                
+                if 'test_result' in locals():  # Only proceed if validation passed
+                    with st.spinner("Running optimization..."):
+                        try:
+                            # Create ODE function
+                            def create_ode_func(param_names, ode_code):
+                                # Properly indent the user's ODE code
+                                lines = ode_code.strip().split('\n')
+                                indented_lines = []
+                                for line in lines:
+                                    if line.strip():  # Only indent non-empty lines
+                                        indented_lines.append('    ' + line.strip())
+                                    else:
+                                        indented_lines.append('')
+                                
+                                indented_code = '\n'.join(indented_lines)
+                                
+                                func_code = f"""
+def ode_system(y, t, {', '.join(param_names)}):
+{indented_code}
+"""
+                                exec(func_code, globals())
+                                return globals()['ode_system']
+                            
+                            ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
+                            
+                            # Prepare all datasets
+                            all_times = []
+                            all_data = []
+                            for dataset_name, data in st.session_state.datasets.items():
+                                all_times.extend(data['time'].values)
+                                all_data.append(data)
+                            
+                            # Get unique sorted time points
+                            unique_times = sorted(set(all_times))
+                            t_data = np.array(unique_times)
+                            
+                            # Multi-objective optimization function
+                            def objective(params):
+                                try:
+                                    # Solve ODE
+                                    sol = odeint(ode_func, st.session_state.initial_conditions, t_data, 
+                                               args=tuple(params))
+                                    
+                                    total_ssr = 0
+                                    for dataset_name, data in st.session_state.datasets.items():
+                                        var_idx = st.session_state.dataset_mapping[dataset_name]
+                                        
+                                        # Interpolate model solution to data time points
+                                        model_vals = np.interp(data['time'], t_data, sol[:, var_idx])
+                                        
+                                        # Apply transformations
+                                        if use_log_transform and np.all(data['value'] > 0):
+                                            model_vals = np.log(np.maximum(model_vals, 1e-10))
+                                            data_vals = np.log(data['value'])
+                                        else:
+                                            data_vals = data['value']
+                                        
+                                        # Calculate error
+                                        if use_relative_error:
+                                            error = ((model_vals - data_vals) / (np.abs(data_vals) + 1e-10))**2
+                                        else:
+                                            error = (model_vals - data_vals)**2
+                                        
+                                        # Weight by dataset
+                                        ssr = np.sum(error) * dataset_weights[dataset_name]
+                                        total_ssr += ssr
+                                    
+                                    return total_ssr
+                                except:
+                                    return 1e12
+                            
+                            # Setup optimization
+                            opt_bounds = [bounds[param] for param in st.session_state.param_names]
+                            x0 = [initial_guesses[param] for param in st.session_state.param_names]
+                            
+                            # Run optimization
+                            if multi_start:
+                                best_result = None
+                                best_cost = np.inf
+                                
+                                progress_bar = st.progress(0)
+                                for i in range(n_starts):
+                                    # Random initial point
+                                    x0_random = []
+                                    for (low, high) in opt_bounds:
+                                        if np.isfinite(low) and np.isfinite(high):
+                                            x0_random.append(np.random.uniform(low, high))
+                                        else:
+                                            x0_random.append(np.random.lognormal(0, 1))
+                                    
+                                    result = minimize(objective, x0_random, method=opt_method, 
+                                                    bounds=opt_bounds, options={'maxiter': max_iter})
+                                    
+                                    if result.fun < best_cost:
+                                        best_result = result
+                                        best_cost = result.fun
+                                    
+                                    progress_bar.progress((i + 1) / n_starts)
+                                
+                                result = best_result
+                                progress_bar.empty()
+                            else:
+                                result = minimize(objective, x0, method=opt_method, 
+                                                bounds=opt_bounds, options={'maxiter': max_iter})
+                            
+                            # Store results
+                            st.session_state.fit_results = {
+                                'params': dict(zip(st.session_state.param_names, result.x)),
+                                'cost': result.fun,
+                                'success': result.success,
+                                'message': result.message,
+                                'result_obj': result,
+                                'dataset_weights': dataset_weights,
+                                'fitting_options': {
+                                    'use_relative_error': use_relative_error,
+                                    'use_log_transform': use_log_transform,
+                                    'normalize_by_initial': normalize_by_initial
+                                }
+                            }
+                            
+                            st.success("✅ Model fitting completed!")
+                            
+                        except Exception as e:
+                            st.error(f"Error during fitting: {str(e)}")
+                            st.exception(e)
     else:
         st.warning("Please upload datasets and define your ODE system first.")
 
@@ -657,108 +719,129 @@ with tab4:
             st.subheader("Model Fit Visualization")
             
             try:
-                # Generate model predictions
-                all_times = []
-                for data in st.session_state.datasets.values():
-                    all_times.extend(data['time'].values)
-                
-                t_min, t_max = min(all_times), max(all_times)
-                t_fine = np.linspace(t_min, t_max, 1000)
-                
-                # Create ODE function
+                # Validate ODE system before visualization
                 def create_ode_func(param_names, ode_code):
+                    # Properly indent the user's ODE code
+                    lines = ode_code.strip().split('\n')
+                    indented_lines = []
+                    for line in lines:
+                        if line.strip():  # Only indent non-empty lines
+                            indented_lines.append('    ' + line.strip())
+                        else:
+                            indented_lines.append('')
+                    
+                    indented_code = '\n'.join(indented_lines)
+                    
                     func_code = f"""
 def ode_system(y, t, {', '.join(param_names)}):
-    {ode_code}
+{indented_code}
 """
                     exec(func_code, globals())
                     return globals()['ode_system']
                 
                 ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
                 
-                # Solve with fitted parameters
+                # Validate ODE system compatibility
                 fitted_params = [st.session_state.fit_results['params'][p] for p in st.session_state.param_names]
-                solution = odeint(ode_func, st.session_state.initial_conditions, t_fine, 
-                                args=tuple(fitted_params))
+                test_result = ode_func(st.session_state.initial_conditions, 0, *fitted_params)
                 
-                # Create visualization
-                if plot_style == "plotly":
-                    fig = go.Figure()
-                    
-                    # Add experimental data
-                    for dataset_name, data in st.session_state.datasets.items():
-                        fig.add_trace(go.Scatter(
-                            x=data['time'],
-                            y=data['value'],
-                            mode='markers',
-                            name=f'Data: {dataset_name}',
-                            marker=dict(size=8)
-                        ))
-                    
-                    # Add model predictions
-                    for dataset_name, data in st.session_state.datasets.items():
-                        var_idx = st.session_state.dataset_mapping[dataset_name]
-                        fig.add_trace(go.Scatter(
-                            x=t_fine,
-                            y=solution[:, var_idx],
-                            mode='lines',
-                            name=f'Model: {dataset_name}',
-                            line=dict(width=3)
-                        ))
-                    
-                    fig.update_layout(
-                        title="Multi-Dataset Model Fit",
-                        xaxis_title="Time",
-                        yaxis_title="Value",
-                        hovermode='x unified',
-                        template='plotly_white'
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
+                validation_passed = True
+                if len(test_result) != len(st.session_state.initial_conditions):
+                    st.error(f"❌ ODE system mismatch: Your ODE returns {len(test_result)} derivatives but you have {len(st.session_state.initial_conditions)} initial conditions.")
+                    st.error("Cannot generate visualization. Please fix your ODE definition or initial conditions.")
+                    validation_passed = False
                 
-                else:
-                    # Matplotlib plot
-                    n_datasets = len(st.session_state.datasets)
-                    fig, axes = plt.subplots(1, n_datasets, figsize=(5*n_datasets, 5))
-                    if n_datasets == 1:
-                        axes = [axes]
+                if validation_passed:
+                    # Generate model predictions
+                    all_times = []
+                    for data in st.session_state.datasets.values():
+                        all_times.extend(data['time'].values)
                     
-                    for i, (dataset_name, data) in enumerate(st.session_state.datasets.items()):
-                        var_idx = st.session_state.dataset_mapping[dataset_name]
-                        
-                        axes[i].scatter(data['time'], data['value'], 
-                                      label=f'Data: {dataset_name}', alpha=0.7, s=50)
-                        axes[i].plot(t_fine, solution[:, var_idx], 
-                                   label=f'Model: {dataset_name}', linewidth=2)
-                        axes[i].set_xlabel('Time')
-                        axes[i].set_ylabel('Value')
-                        axes[i].set_title(f'{dataset_name}')
-                        axes[i].legend()
-                        axes[i].grid(True, alpha=0.3)
+                    t_min, t_max = min(all_times), max(all_times)
+                    t_fine = np.linspace(t_min, t_max, 1000)
                     
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                
-                # Model statistics
-                with st.expander("📊 Detailed Model Statistics"):
-                    st.write("**Dataset-wise Statistics:**")
-                    for dataset_name, data in st.session_state.datasets.items():
-                        var_idx = st.session_state.dataset_mapping[dataset_name]
-                        model_vals = np.interp(data['time'], t_fine, solution[:, var_idx])
+                    # Solve with fitted parameters
+                    solution = odeint(ode_func, st.session_state.initial_conditions, t_fine, 
+                                    args=tuple(fitted_params))
+                    
+                    # Create visualization
+                    if plot_style == "plotly":
+                        fig = go.Figure()
                         
-                        residuals = data['value'] - model_vals
-                        rmse = np.sqrt(np.mean(residuals**2))
-                        mae = np.mean(np.abs(residuals))
+                        # Add experimental data
+                        for dataset_name, data in st.session_state.datasets.items():
+                            fig.add_trace(go.Scatter(
+                                x=data['time'],
+                                y=data['value'],
+                                mode='markers',
+                                name=f'Data: {dataset_name}',
+                                marker=dict(size=8)
+                            ))
                         
-                        if np.std(data['value']) > 0:
-                            r_squared = 1 - (np.sum(residuals**2) / np.sum((data['value'] - np.mean(data['value']))**2))
-                        else:
-                            r_squared = np.nan
+                        # Add model predictions
+                        for dataset_name, data in st.session_state.datasets.items():
+                            var_idx = st.session_state.dataset_mapping[dataset_name]
+                            fig.add_trace(go.Scatter(
+                                x=t_fine,
+                                y=solution[:, var_idx],
+                                mode='lines',
+                                name=f'Model: {dataset_name}',
+                                line=dict(width=3)
+                            ))
                         
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric(f"RMSE ({dataset_name})", f"{rmse:.4f}")
-                        col2.metric(f"MAE ({dataset_name})", f"{mae:.4f}")
-                        col3.metric(f"R² ({dataset_name})", f"{r_squared:.4f}")
+                        fig.update_layout(
+                            title="Multi-Dataset Model Fit",
+                            xaxis_title="Time",
+                            yaxis_title="Value",
+                            hovermode='x unified',
+                            template='plotly_white'
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    else:
+                        # Matplotlib plot
+                        n_datasets = len(st.session_state.datasets)
+                        fig, axes = plt.subplots(1, n_datasets, figsize=(5*n_datasets, 5))
+                        if n_datasets == 1:
+                            axes = [axes]
+                        
+                        for i, (dataset_name, data) in enumerate(st.session_state.datasets.items()):
+                            var_idx = st.session_state.dataset_mapping[dataset_name]
+                            
+                            axes[i].scatter(data['time'], data['value'], 
+                                          label=f'Data: {dataset_name}', alpha=0.7, s=50)
+                            axes[i].plot(t_fine, solution[:, var_idx], 
+                                       label=f'Model: {dataset_name}', linewidth=2)
+                            axes[i].set_xlabel('Time')
+                            axes[i].set_ylabel('Value')
+                            axes[i].set_title(f'{dataset_name}')
+                            axes[i].legend()
+                            axes[i].grid(True, alpha=0.3)
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig)
+                    
+                    # Model statistics
+                    with st.expander("📊 Detailed Model Statistics"):
+                        st.write("**Dataset-wise Statistics:**")
+                        for dataset_name, data in st.session_state.datasets.items():
+                            var_idx = st.session_state.dataset_mapping[dataset_name]
+                            model_vals = np.interp(data['time'], t_fine, solution[:, var_idx])
+                            
+                            residuals = data['value'] - model_vals
+                            rmse = np.sqrt(np.mean(residuals**2))
+                            mae = np.mean(np.abs(residuals))
+                            
+                            if np.std(data['value']) > 0:
+                                r_squared = 1 - (np.sum(residuals**2) / np.sum((data['value'] - np.mean(data['value']))**2))
+                            else:
+                                r_squared = np.nan
+                            
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric(f"RMSE ({dataset_name})", f"{rmse:.4f}")
+                            col2.metric(f"MAE ({dataset_name})", f"{mae:.4f}")
+                            col3.metric(f"R² ({dataset_name})", f"{r_squared:.4f}")
                 
             except Exception as e:
                 st.error(f"Error generating visualization: {str(e)}")
@@ -800,9 +883,20 @@ with tab5:
                     try:
                         # Create ODE function
                         def create_ode_func(param_names, ode_code):
+                            # Properly indent the user's ODE code
+                            lines = ode_code.strip().split('\n')
+                            indented_lines = []
+                            for line in lines:
+                                if line.strip():  # Only indent non-empty lines
+                                    indented_lines.append('    ' + line.strip())
+                                else:
+                                    indented_lines.append('')
+                            
+                            indented_code = '\n'.join(indented_lines)
+                            
                             func_code = f"""
 def ode_system(y, t, {', '.join(param_names)}):
-    {ode_code}
+{indented_code}
 """
                             exec(func_code, globals())
                             return globals()['ode_system']
