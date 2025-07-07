@@ -17,8 +17,8 @@ from datetime import datetime
 
 # Set page configuration
 st.set_page_config(
-    page_title="ODE Model Fitting Tool",
-    page_icon="📊",
+    page_title="mODEl - ODE Model Fitting by Dobrovolny Lab TCU",
+    page_icon="🧮",
     layout="wide"
 )
 
@@ -104,13 +104,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Title and description
-st.title("🧮 Advanced ODE Model Fitting Tool")
+st.title("🧮 mODEl: Advanced ODE Model Fitting")
+st.markdown("**by Dobrovolny Lab, Texas Christian University**")
 st.markdown("""
-This tool provides comprehensive ODE modeling capabilities including:
+**mODEl** provides comprehensive ODE modeling capabilities including:
 - Multi-dataset upload and fitting
 - Bootstrap analysis for parameter uncertainty
 - Advanced visualization and result export
 - Support for complex multi-variable systems
+
+*Developed by the Dobrovolny Laboratory at Texas Christian University for mathematical modeling in biological systems.*
 """)
 
 # Initialize session state
@@ -218,7 +221,7 @@ with st.sidebar:
 
 # Tab 1: Enhanced Data Upload
 with tab1:
-    st.header("Upload Experimental Data")
+    st.header("Upload Experimental Data to mODEl")
     
     # Multi-dataset upload
     st.subheader("Multi-Dataset Upload")
@@ -231,7 +234,7 @@ with tab1:
         uploaded_file = st.file_uploader(
             "Choose a file (txt or csv)",
             type=['txt', 'csv'],
-            help="Upload experimental data with 'time' and 'value' columns"
+            help="Upload experimental data with 'time' and 'value' columns for analysis in mODEl"
         )
         
         # Auto-detect dataset name from filename
@@ -443,9 +446,9 @@ with tab1:
                 csv_buffer = io.StringIO()
                 stats_df.to_csv(csv_buffer, index=False)
                 st.download_button(
-                    label="Download Statistics CSV",
+                    label="Download mODEl Statistics CSV",
                     data=csv_buffer.getvalue(),
-                    file_name=f"dataset_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"mODEl_dataset_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
             
@@ -826,8 +829,9 @@ with tab3:
                 
                 with col_template:
                     if st.button("📋 Generate Template", key="generate_template"):
-                        template_code = """# Parameter Bounds Configuration Template
-# Save this as a .py file for easy reuse
+                        template_code = """# mODEl Parameter Bounds Configuration Template - Dobrovolny Lab TCU
+# Save this as a .py file for easy reuse in mODEl
+# Software: mODEl by Dobrovolny Laboratory, Texas Christian University
 
 # Example bounds for common parameters
 bounds = {
@@ -873,9 +877,9 @@ initial_guess = {
 # }
 """
                         st.download_button(
-                            label="Download Template",
+                            label="Download mODEl Template",
                             data=template_code,
-                            file_name="bounds_template.py",
+                            file_name="mODEl_bounds_template.py",
                             mime="text/plain"
                         )
                 
@@ -1135,21 +1139,22 @@ initial_guess = {
                         
                         # Export bounds code
                         if st.button("📥 Export Bounds Code", key="export_bounds"):
-                            bounds_export = f"""# Parameter Bounds Configuration
+                            bounds_export = f"""# mODEl Parameter Bounds Configuration - Dobrovolny Lab TCU
 # Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Software: mODEl by Dobrovolny Laboratory, Texas Christian University
 
 {bounds_code}
 
-# Usage Instructions:
+# Usage Instructions for mODEl:
 # 1. Copy this code block
-# 2. Paste into the 'Code-based Definition' section
+# 2. Paste into the 'Code-based Definition' section in mODEl
 # 3. Modify bounds as needed
 # 4. Click 'Run Advanced Model Fitting'
 """
                             st.download_button(
-                                label="Download Bounds Configuration",
+                                label="Download mODEl Bounds Configuration",
                                 data=bounds_export,
-                                file_name=f"parameter_bounds_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py",
+                                file_name=f"mODEl_parameter_bounds_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py",
                                 mime="text/plain"
                             )
             else:
@@ -1374,17 +1379,17 @@ def ode_system(y, t, {', '.join(param_names)}):
                                 }
                             }
                             
-                            st.success("✅ Model fitting completed!")
+                            st.success("✅ mODEl model fitting completed!")
                             
                         except Exception as e:
-                            st.error(f"Error during fitting: {str(e)}")
+                            st.error(f"Error during mODEl fitting: {str(e)}")
                             st.exception(e)
     else:
-        st.warning("Please upload datasets and define your ODE system first.")
+        st.warning("Please upload datasets and define your ODE system first to use mODEl's fitting capabilities.")
 
 # Tab 4: Enhanced Results
 with tab4:
-    st.header("Fitting Results & Analysis")
+    st.header("mODEl Fitting Results & Analysis")
     
     if st.session_state.fit_results:
         col1, col2 = st.columns([1, 2])
@@ -1419,8 +1424,9 @@ with tab4:
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                     # Parameters file
-                    params_str = "# ODE Model Fitting Results\n"
-                    params_str += f"# Timestamp: {timestamp}\n\n"
+                    params_str = "# mODEl Results - Dobrovolny Lab TCU\n"
+                    params_str += f"# Generated: {timestamp}\n"
+                    params_str += "# https://github.com/DobrovolnyLab\n\n"
                     params_str += "# Fitted Parameters\n"
                     for param, value in st.session_state.fit_results['params'].items():
                         params_str += f"{param}: {value:.6e}\n"
@@ -1443,7 +1449,7 @@ with tab4:
                     zip_file.writestr("results_summary.csv", csv_buffer.getvalue())
                     
                     # Dataset info
-                    dataset_info = "# Dataset Information\n"
+                    dataset_info = "# mODEl Dataset Information - Dobrovolny Lab TCU\n"
                     for name, data in st.session_state.datasets.items():
                         dataset_info += f"\n{name}:\n"
                         dataset_info += f"  - Rows: {len(data)}\n"
@@ -1452,8 +1458,9 @@ with tab4:
                     zip_file.writestr("dataset_info.txt", dataset_info)
                     
                     # ODE system and bounds configuration
-                    ode_config = "# ODE System Configuration\n"
-                    ode_config += f"# Generated: {timestamp}\n\n"
+                    ode_config = "# mODEl System Configuration - Dobrovolny Lab TCU\n"
+                    ode_config += f"# Generated: {timestamp}\n"
+                    ode_config += "# https://github.com/DobrovolnyLab\n\n"
                     ode_config += "# ODE System Definition\n"
                     ode_config += f"# Number of state variables: {len(st.session_state.initial_conditions)}\n"
                     ode_config += f"# Initial conditions: {st.session_state.initial_conditions}\n\n"
@@ -1470,8 +1477,9 @@ with tab4:
                     zip_file.writestr("ode_configuration.py", ode_config)
                     
                     # Analysis summary
-                    analysis_summary = f"""# Analysis Summary
+                    analysis_summary = f"""# mODEl Analysis Summary - Dobrovolny Lab TCU
 # Generated: {timestamp}
+# Software: mODEl by Dobrovolny Laboratory, Texas Christian University
 
 ## Model Information
 - Number of parameters: {len(st.session_state.param_names)}
@@ -1495,13 +1503,15 @@ with tab4:
                         analysis_summary += f"- Confidence level: {st.session_state.bootstrap_results['confidence_level']}%\n"
                         analysis_summary += f"- Bootstrap method: {st.session_state.bootstrap_results['method']}\n"
                     
+                    analysis_summary += "\n---\nGenerated by mODEl - Dobrovolny Laboratory, Texas Christian University"
+                    
                     zip_file.writestr("analysis_summary.md", analysis_summary)
                 
                 zip_buffer.seek(0)
                 st.download_button(
-                    label="Download Results Package",
+                    label="Download mODEl Results Package",
                     data=zip_buffer.getvalue(),
-                    file_name=f"ode_results_{timestamp}.zip",
+                    file_name=f"mODEl_results_{timestamp}.zip",
                     mime="application/zip"
                 )
         
@@ -1642,10 +1652,10 @@ def ode_system(y, t, {', '.join(param_names)}):
 
 # Tab 5: Bootstrap Analysis
 with tab5:
-    st.header("Bootstrap Analysis for Parameter Uncertainty")
+    st.header("mODEl Bootstrap Analysis for Parameter Uncertainty")
     
     if not st.session_state.fit_results:
-        st.warning("Please run model fitting first before bootstrap analysis.")
+        st.warning("Please run mODEl model fitting first before bootstrap analysis.")
     else:
         st.markdown("""
         <div class="bootstrap-warning">
@@ -1868,10 +1878,10 @@ def ode_system(y, t, {', '.join(param_names)}):
                         
                         # Clear the live progress display and show completion
                         with col2:
-                            st.success("✅ Bootstrap analysis completed!")
+                            st.success("✅ mODEl bootstrap analysis completed!")
                         
                     except Exception as e:
-                        st.error(f"Error during bootstrap analysis: {str(e)}")
+                        st.error(f"Error during mODEl bootstrap analysis: {str(e)}")
                         st.exception(e)
         
         with col2:
@@ -1909,8 +1919,9 @@ def ode_system(y, t, {', '.join(param_names)}):
                 
                 # Export bootstrap results
                 if st.button("📥 Export Bootstrap Results"):
-                    bootstrap_export = f"""# Bootstrap Analysis Results
+                    bootstrap_export = f"""# mODEl Bootstrap Analysis Results - Dobrovolny Lab TCU
 # Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+# Software: mODEl by Dobrovolny Laboratory, Texas Christian University
 
 ## Configuration
 - Bootstrap samples: {st.session_state.bootstrap_results['n_samples']}
@@ -1928,10 +1939,12 @@ def ode_system(y, t, {', '.join(param_names)}):
 - {st.session_state.bootstrap_results['confidence_level']}% CI: [{stats['ci_lower']:.6e}, {stats['ci_upper']:.6e}]
 """
                     
+                    bootstrap_export += "\n---\nGenerated by mODEl - Dobrovolny Laboratory, Texas Christian University"
+                    
                     st.download_button(
-                        label="Download Bootstrap Analysis",
+                        label="Download mODEl Bootstrap Analysis",
                         data=bootstrap_export,
-                        file_name=f"bootstrap_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                        file_name=f"mODEl_bootstrap_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
                         mime="text/plain"
                     )
 
@@ -2005,7 +2018,12 @@ with tab6:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center'>
-    <p>Advanced ODE Model Fitting Tool</p>
-    <p><em>Built by Arjan Suri and Sahaj Satani | TCU Dobrovolny Lab</em></p>
+    <p><strong>mODEl: Advanced ODE Model Fitting</strong></p>
+    <p><em>Developed by Arjan Suri and Sahaj Satani</em></p>
+    <p><em>Dobrovolny Laboratory | Texas Christian University</em></p>
+    <p style='font-size: 0.8em; color: #666;'>
+        For support and documentation, visit: 
+        <a href='https://personal.tcu.edu/hdobrovolny' target='_blank'>personal.tcu.edu/hdobrovolny</a>
+    </p>
 </div>
 """, unsafe_allow_html=True) 
