@@ -95,7 +95,7 @@ Define your ODE system using Python syntax. The tool supports:
 
 ```python
 # Viral dynamics with immune response
-T, R, I, V, F = y  # Unpack variables
+T, R, I, V, F = y
 dTdt = -beta * T * V - gamma * T * F    # Target cells
 dRdt = gamma * T * F - rho * R          # Resistant cells
 dIdt = beta * T * V - delta * I         # Infected cells

@@ -14,6 +14,7 @@ import plotly.express as px
 from ode_examples import ODE_EXAMPLES, calculate_sensitivity_matrix, estimate_parameter_confidence
 import zipfile
 from datetime import datetime
+from plotly.subplots import make_subplots
 
 # Set page configuration
 st.set_page_config(
@@ -340,35 +341,99 @@ with tab1:
     if st.session_state.datasets:
         st.subheader("Data Visualization")
         
-        # Create combined plot
-        fig = plt.figure(figsize=(12, 8))
-        
-        n_datasets = len(st.session_state.datasets)
-        if n_datasets == 1:
-            # Single plot
-            for name, data in st.session_state.datasets.items():
-                plt.plot(data['time'], data['value'], 'o-', label=name)
-                plt.xlabel('Time')
-                plt.ylabel('Value')
-                plt.title(f'Dataset: {name}')
-                plt.legend()
-                plt.grid(True, alpha=0.3)
-        else:
-            # Subplots for multiple datasets
-            cols = 2
-            rows = (n_datasets + cols - 1) // cols
+        # Create combined plot based on selected style
+        if plot_style == "plotly":
+            # Use Plotly for visualization
+            n_datasets = len(st.session_state.datasets)
             
-            for i, (name, data) in enumerate(st.session_state.datasets.items()):
-                plt.subplot(rows, cols, i + 1)
-                plt.plot(data['time'], data['value'], 'o-', label=name)
-                plt.xlabel('Time')
-                plt.ylabel('Value')
-                plt.title(f'Dataset: {name}')
-                plt.legend()
-                plt.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        st.pyplot(fig)
+            if n_datasets == 1:
+                # Single plot
+                fig = go.Figure()
+                for name, data in st.session_state.datasets.items():
+                    fig.add_trace(go.Scatter(
+                        x=data['time'],
+                        y=data['value'],
+                        mode='lines+markers',
+                        name=name,
+                        line=dict(width=2),
+                        marker=dict(size=6)
+                    ))
+                fig.update_layout(
+                    title=f"Dataset Visualization",
+                    xaxis_title="Time",
+                    yaxis_title="Value",
+                    template='plotly_white',
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                # Subplots for multiple datasets
+                cols = 2
+                rows = (n_datasets + cols - 1) // cols
+                
+                fig = make_subplots(
+                    rows=rows, cols=cols,
+                    subplot_titles=[name for name in st.session_state.datasets.keys()],
+                    vertical_spacing=0.1,
+                    horizontal_spacing=0.1
+                )
+                
+                for i, (name, data) in enumerate(st.session_state.datasets.items()):
+                    row = (i // cols) + 1
+                    col = (i % cols) + 1
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=data['time'],
+                            y=data['value'],
+                            mode='lines+markers',
+                            name=name,
+                            line=dict(width=2),
+                            marker=dict(size=6),
+                            showlegend=False
+                        ),
+                        row=row, col=col
+                    )
+                
+                fig.update_layout(
+                    height=400*rows,
+                    title_text="Multi-Dataset Visualization",
+                    template='plotly_white'
+                )
+                fig.update_xaxes(title_text="Time")
+                fig.update_yaxes(title_text="Value")
+                
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            # Use matplotlib for visualization
+            fig = plt.figure(figsize=(12, 8))
+            
+            n_datasets = len(st.session_state.datasets)
+            if n_datasets == 1:
+                # Single plot
+                for name, data in st.session_state.datasets.items():
+                    plt.plot(data['time'], data['value'], 'o-', label=name)
+                    plt.xlabel('Time')
+                    plt.ylabel('Value')
+                    plt.title(f'Dataset: {name}')
+                    plt.legend()
+                    plt.grid(True, alpha=0.3)
+            else:
+                # Subplots for multiple datasets
+                cols = 2
+                rows = (n_datasets + cols - 1) // cols
+                
+                for i, (name, data) in enumerate(st.session_state.datasets.items()):
+                    plt.subplot(rows, cols, i + 1)
+                    plt.plot(data['time'], data['value'], 'o-', label=name)
+                    plt.xlabel('Time')
+                    plt.ylabel('Value')
+                    plt.title(f'Dataset: {name}')
+                    plt.legend()
+                    plt.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            st.pyplot(fig)
         
         # Enhanced Data statistics with clickable table
         st.subheader("📊 Dataset Statistics")
@@ -472,25 +537,73 @@ with tab1:
                 with col2:
                     st.markdown(f"**{selected_dataset} - Data Distribution:**")
                     
-                    # Create distribution plot
-                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
-                    
-                    # Time distribution
-                    ax1.hist(data['time'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-                    ax1.set_xlabel('Time')
-                    ax1.set_ylabel('Frequency')
-                    ax1.set_title(f'{selected_dataset} - Time Distribution')
-                    ax1.grid(True, alpha=0.3)
-                    
-                    # Value distribution
-                    ax2.hist(data['value'], bins=20, alpha=0.7, color='lightcoral', edgecolor='black')
-                    ax2.set_xlabel('Value')
-                    ax2.set_ylabel('Frequency')
-                    ax2.set_title(f'{selected_dataset} - Value Distribution')
-                    ax2.grid(True, alpha=0.3)
-                    
-                    plt.tight_layout()
-                    st.pyplot(fig)
+                    # Create distribution plot based on selected style
+                    if plot_style == "plotly":
+                        # Use Plotly for distribution plots
+                        from plotly.subplots import make_subplots
+                        
+                        fig = make_subplots(
+                            rows=1, cols=2,
+                            subplot_titles=[f'{selected_dataset} - Time Distribution', 
+                                          f'{selected_dataset} - Value Distribution'],
+                            horizontal_spacing=0.15
+                        )
+                        
+                        # Time distribution
+                        fig.add_trace(
+                            go.Histogram(
+                                x=data['time'],
+                                name='Time',
+                                marker_color='skyblue',
+                                opacity=0.7,
+                                showlegend=False
+                            ),
+                            row=1, col=1
+                        )
+                        
+                        # Value distribution
+                        fig.add_trace(
+                            go.Histogram(
+                                x=data['value'],
+                                name='Value',
+                                marker_color='lightcoral',
+                                opacity=0.7,
+                                showlegend=False
+                            ),
+                            row=1, col=2
+                        )
+                        
+                        fig.update_layout(
+                            height=400,
+                            template='plotly_white',
+                            title_text=f'{selected_dataset} - Data Distributions'
+                        )
+                        fig.update_xaxes(title_text="Time", row=1, col=1)
+                        fig.update_xaxes(title_text="Value", row=1, col=2)
+                        fig.update_yaxes(title_text="Frequency", row=1, col=1)
+                        fig.update_yaxes(title_text="Frequency", row=1, col=2)
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        # Use matplotlib for distribution plots
+                        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+                        
+                        # Time distribution
+                        ax1.hist(data['time'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                        ax1.set_xlabel('Time')
+                        ax1.set_ylabel('Frequency')
+                        ax1.set_title(f'{selected_dataset} - Time Distribution')
+                        ax1.grid(True, alpha=0.3)
+                        
+                        # Value distribution
+                        ax2.hist(data['value'], bins=20, alpha=0.7, color='lightcoral', edgecolor='black')
+                        ax2.set_xlabel('Value')
+                        ax2.set_ylabel('Frequency')
+                        ax2.set_title(f'{selected_dataset} - Value Distribution')
+                        ax2.grid(True, alpha=0.3)
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig)
                     
                     # Data quality checks
                     st.markdown(f"**{selected_dataset} - Data Quality:**")
@@ -570,7 +683,7 @@ with tab2:
         **Multi-variable Example:**
         ```python
         # Viral dynamics with immune response
-        T, R, I, V, F = y  # Unpack variables
+        T, R, I, V, F = y
         dTdt = -beta * T * V - gamma * T * F
         dRdt = gamma * T * F - rho * R
         dIdt = beta * T * V - delta * I
@@ -1953,49 +2066,155 @@ def ode_system(y, t, {', '.join(param_names)}):
             st.subheader("Parameter Distribution Analysis")
             
             n_params = len(st.session_state.param_names)
-            cols = 3
-            rows = (n_params + cols - 1) // cols
+            confidence_level = st.session_state.bootstrap_results['confidence_level']
             
-            fig, axes = plt.subplots(rows, cols, figsize=(15, 5*rows))
-            if rows == 1:
-                axes = axes.reshape(1, -1)
-            if cols == 1:
-                axes = axes.reshape(-1, 1)
-            
-            for i, param in enumerate(st.session_state.param_names):
-                row, col = i // cols, i % cols
+            if plot_style == "plotly":
+                # Use Plotly for parameter distribution plots
+                cols = 3
+                rows = (n_params + cols - 1) // cols
                 
+                fig = make_subplots(
+                    rows=rows, cols=cols,
+                    subplot_titles=[param for param in st.session_state.param_names],
+                    vertical_spacing=0.1,
+                    horizontal_spacing=0.1
+                )
+                
+                for i, param in enumerate(st.session_state.param_names):
+                    row = (i // cols) + 1
+                    col = (i % cols) + 1
+                    
+                    values = st.session_state.bootstrap_results['stats'][param]['values']
+                    
+                    # Add histogram
+                    fig.add_trace(
+                        go.Histogram(
+                            x=values,
+                            name=f'{param} Distribution',
+                            marker_color='skyblue',
+                            opacity=0.7,
+                            showlegend=False
+                        ),
+                        row=row, col=col
+                    )
+                    
+                    # Add vertical lines for statistics
+                    y_max = np.histogram(values, bins=20)[0].max()
+                    
+                    # Original estimate
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[st.session_state.fit_results['params'][param], 
+                               st.session_state.fit_results['params'][param]],
+                            y=[0, y_max],
+                            mode='lines',
+                            line=dict(color='red', dash='dash', width=2),
+                            name='Original' if i == 0 else None,
+                            showlegend=True if i == 0 else False,
+                            legendgroup='original'
+                        ),
+                        row=row, col=col
+                    )
+                    
+                    # Bootstrap mean
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[st.session_state.bootstrap_results['stats'][param]['mean'], 
+                               st.session_state.bootstrap_results['stats'][param]['mean']],
+                            y=[0, y_max],
+                            mode='lines',
+                            line=dict(color='green', width=2),
+                            name='Bootstrap Mean' if i == 0 else None,
+                            showlegend=True if i == 0 else False,
+                            legendgroup='bootstrap_mean'
+                        ),
+                        row=row, col=col
+                    )
+                    
+                    # Confidence interval bounds
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[st.session_state.bootstrap_results['stats'][param]['ci_lower'], 
+                               st.session_state.bootstrap_results['stats'][param]['ci_lower']],
+                            y=[0, y_max],
+                            mode='lines',
+                            line=dict(color='orange', dash='dot', width=2),
+                            name=f'{confidence_level}% CI' if i == 0 else None,
+                            showlegend=True if i == 0 else False,
+                            legendgroup='ci'
+                        ),
+                        row=row, col=col
+                    )
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[st.session_state.bootstrap_results['stats'][param]['ci_upper'], 
+                               st.session_state.bootstrap_results['stats'][param]['ci_upper']],
+                            y=[0, y_max],
+                            mode='lines',
+                            line=dict(color='orange', dash='dot', width=2),
+                            name=None,
+                            showlegend=False,
+                            legendgroup='ci'
+                        ),
+                        row=row, col=col
+                    )
+                
+                fig.update_layout(
+                    height=400*rows,
+                    title_text="Parameter Distribution Analysis",
+                    template='plotly_white'
+                )
+                fig.update_xaxes(title_text="Parameter Value")
+                fig.update_yaxes(title_text="Frequency")
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+            else:
+                # Use matplotlib for parameter distribution plots
+                cols = 3
+                rows = (n_params + cols - 1) // cols
+                
+                fig, axes = plt.subplots(rows, cols, figsize=(15, 5*rows))
                 if rows == 1:
-                    ax = axes[col] if cols > 1 else axes[0]
-                else:
-                    ax = axes[row, col] if cols > 1 else axes[row]
+                    axes = axes.reshape(1, -1)
+                if cols == 1:
+                    axes = axes.reshape(-1, 1)
                 
-                values = st.session_state.bootstrap_results['stats'][param]['values']
-                ax.hist(values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                for i, param in enumerate(st.session_state.param_names):
+                    row, col = i // cols, i % cols
+                    
+                    if rows == 1:
+                        ax = axes[col] if cols > 1 else axes[0]
+                    else:
+                        ax = axes[row, col] if cols > 1 else axes[row]
+                    
+                    values = st.session_state.bootstrap_results['stats'][param]['values']
+                    ax.hist(values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                    
+                    # Add vertical lines for statistics
+                    ax.axvline(st.session_state.fit_results['params'][param], 
+                              color='red', linestyle='--', linewidth=2, label='Original')
+                    ax.axvline(st.session_state.bootstrap_results['stats'][param]['mean'], 
+                              color='green', linestyle='-', linewidth=2, label='Bootstrap Mean')
+                    ax.axvline(st.session_state.bootstrap_results['stats'][param]['ci_lower'], 
+                              color='orange', linestyle=':', linewidth=2, label=f'{confidence_level}% CI')
+                    ax.axvline(st.session_state.bootstrap_results['stats'][param]['ci_upper'], 
+                              color='orange', linestyle=':', linewidth=2)
+                    
+                    ax.set_title(f'{param}')
+                    ax.set_xlabel('Parameter Value')
+                    ax.set_ylabel('Frequency')
+                    if i == 0:
+                        ax.legend()
                 
-                # Add vertical lines for statistics
-                ax.axvline(st.session_state.fit_results['params'][param], 
-                          color='red', linestyle='--', linewidth=2, label='Original')
-                ax.axvline(st.session_state.bootstrap_results['stats'][param]['mean'], 
-                          color='green', linestyle='-', linewidth=2, label='Bootstrap Mean')
-                ax.axvline(st.session_state.bootstrap_results['stats'][param]['ci_lower'], 
-                          color='orange', linestyle=':', linewidth=2, label=f'{confidence_level}% CI')
-                ax.axvline(st.session_state.bootstrap_results['stats'][param]['ci_upper'], 
-                          color='orange', linestyle=':', linewidth=2)
+                # Remove empty subplots
+                for i in range(n_params, rows * cols):
+                    row, col = i // cols, i % cols
+                    fig.delaxes(axes[row, col] if cols > 1 else axes[row])
                 
-                ax.set_title(f'{param}')
-                ax.set_xlabel('Parameter Value')
-                ax.set_ylabel('Frequency')
-                if i == 0:
-                    ax.legend()
-            
-            # Remove empty subplots
-            for i in range(n_params, rows * cols):
-                row, col = i // cols, i % cols
-                fig.delaxes(axes[row, col] if cols > 1 else axes[row])
-            
-            plt.tight_layout()
-            st.pyplot(fig)
+                plt.tight_layout()
+                st.pyplot(fig)
 
 # Tab 6: Examples (same as before)
 with tab6:
