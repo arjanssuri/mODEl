@@ -130,6 +130,46 @@ if 'fit_results' not in st.session_state:
     st.session_state.fit_results = None
 if 'bootstrap_results' not in st.session_state:
     st.session_state.bootstrap_results = None
+# New session state for batch processing
+if 'batch_jobs' not in st.session_state:
+    st.session_state.batch_jobs = {}
+if 'active_job' not in st.session_state:
+    st.session_state.active_job = None
+# Enhanced state management for UI stability
+if 'dataset_mapping' not in st.session_state:
+    st.session_state.dataset_mapping = {}
+if 'auto_detected_vars' not in st.session_state:
+    st.session_state.auto_detected_vars = 1
+if 'auto_detected_var_names' not in st.session_state:
+    st.session_state.auto_detected_var_names = []
+# Advanced analytics state preservation
+if 'bounds_code' not in st.session_state:
+    st.session_state.bounds_code = ""
+if 'parsed_bounds' not in st.session_state:
+    st.session_state.parsed_bounds = {}
+if 'parsed_initial_guesses' not in st.session_state:
+    st.session_state.parsed_initial_guesses = {}
+if 'optimization_settings' not in st.session_state:
+    st.session_state.optimization_settings = {
+        'method': 'L-BFGS-B',
+        'tolerance': 1e-8,
+        'max_iter': 1000,
+        'multi_start': False,
+        'n_starts': 10,
+        'use_relative_error': True
+    }
+if 'bootstrap_settings' not in st.session_state:
+    st.session_state.bootstrap_settings = {
+        'n_samples': 100,
+        'method': 'Residual Resampling',
+        'confidence_level': 95
+    }
+if 'visualization_settings' not in st.session_state:
+    st.session_state.visualization_settings = {
+        'plot_style': 'plotly',
+        'show_phase_portrait': False,
+        'show_distributions': False
+    }
 
 # Function to check completion status
 def get_completion_status():
@@ -165,33 +205,92 @@ with st.sidebar:
     opt_method = st.selectbox(
         "Optimization Method",
         ["L-BFGS-B", "Nelder-Mead", "SLSQP", "Powell", "TNC", "Differential Evolution"],
+        index=["L-BFGS-B", "Nelder-Mead", "SLSQP", "Powell", "TNC", "Differential Evolution"].index(st.session_state.optimization_settings['method']),
         help="Select the optimization algorithm for parameter fitting"
     )
+    st.session_state.optimization_settings['method'] = opt_method
     
     # Tolerance settings
     st.subheader("Convergence Settings")
-    tol = st.number_input("Tolerance", value=1e-8, format="%.2e", help="Convergence tolerance")
-    max_iter = st.number_input("Max Iterations", value=1000, min_value=100, step=100)
+    tol = st.number_input(
+        "Tolerance", 
+        value=st.session_state.optimization_settings['tolerance'], 
+        format="%.2e", 
+        help="Convergence tolerance"
+    )
+    st.session_state.optimization_settings['tolerance'] = tol
+    
+    max_iter = st.number_input(
+        "Max Iterations", 
+        value=st.session_state.optimization_settings['max_iter'], 
+        min_value=100, 
+        step=100
+    )
+    st.session_state.optimization_settings['max_iter'] = max_iter
     
     # Advanced options
     st.subheader("Advanced Options")
-    use_relative_error = st.checkbox("Use Relative Error", value=True, help="Use relative error instead of absolute error")
-    multi_start = st.checkbox("Multi-start Optimization", value=False)
+    use_relative_error = st.checkbox(
+        "Use Relative Error", 
+        value=st.session_state.optimization_settings['use_relative_error'], 
+        help="Use relative error instead of absolute error"
+    )
+    st.session_state.optimization_settings['use_relative_error'] = use_relative_error
+    
+    multi_start = st.checkbox(
+        "Multi-start Optimization", 
+        value=st.session_state.optimization_settings['multi_start']
+    )
+    st.session_state.optimization_settings['multi_start'] = multi_start
+    
     if multi_start:
-        n_starts = st.number_input("Number of starts", value=10, min_value=2, max_value=100)
+        n_starts = st.number_input(
+            "Number of starts", 
+            value=st.session_state.optimization_settings['n_starts'], 
+            min_value=2, 
+            max_value=100
+        )
+        st.session_state.optimization_settings['n_starts'] = n_starts
     
     # Bootstrap settings
     st.subheader("Bootstrap Analysis")
     enable_bootstrap = st.checkbox("Enable Bootstrap Analysis", value=False)
     if enable_bootstrap:
-        n_bootstrap = st.number_input("Bootstrap Samples", value=100, min_value=10, max_value=1000)
-        bootstrap_method = st.selectbox("Bootstrap Method", ["Residual Resampling", "Parametric Bootstrap"])
+        n_bootstrap_samples = st.number_input("Number of Bootstrap Samples", 
+                                                value=st.session_state.bootstrap_settings['n_samples'], min_value=10, max_value=1000)
+        
+        bootstrap_method = st.selectbox("Bootstrap Method", 
+                                          ["Residual Resampling", "Parametric Bootstrap"],
+                                          index=["Residual Resampling", "Parametric Bootstrap"].index(st.session_state.bootstrap_settings['method']))
+        
+        confidence_level = st.selectbox("Confidence Level", [90, 95, 99], 
+                                           index=[90, 95, 99].index(st.session_state.bootstrap_settings['confidence_level']))
+        
+        # Update session state with current selections
+        st.session_state.bootstrap_settings['n_samples'] = n_bootstrap_samples
+        st.session_state.bootstrap_settings['method'] = bootstrap_method
+        st.session_state.bootstrap_settings['confidence_level'] = confidence_level
     
     # Plot settings
     st.subheader("Visualization Settings")
-    plot_style = st.selectbox("Plot Style", ["seaborn", "plotly"])
-    show_phase_portrait = st.checkbox("Show Phase Portrait (2D systems)", value=False)
-    show_distributions = st.checkbox("Show Parameter Distributions", value=False)
+    plot_style = st.selectbox(
+        "Plot Style", 
+        ["plotly", "seaborn"],
+        index=["plotly", "seaborn"].index(st.session_state.visualization_settings['plot_style'])
+    )
+    st.session_state.visualization_settings['plot_style'] = plot_style
+    
+    show_phase_portrait = st.checkbox(
+        "Show Phase Portrait (2D systems)", 
+        value=st.session_state.visualization_settings['show_phase_portrait']
+    )
+    st.session_state.visualization_settings['show_phase_portrait'] = show_phase_portrait
+    
+    show_distributions = st.checkbox(
+        "Show Parameter Distributions", 
+        value=st.session_state.visualization_settings['show_distributions']
+    )
+    st.session_state.visualization_settings['show_distributions'] = show_distributions
     
     # Completion status display
     st.subheader("📋 Progress Tracker")
@@ -220,433 +319,465 @@ with st.sidebar:
     st.progress(progress_percentage / 100)
     st.markdown(f"**{completed_steps}/{total_steps} steps completed ({progress_percentage:.0f}%)**")
 
-# Tab 1: Enhanced Data Upload
+# Tab 1: Enhanced Data Upload with Batch Processing
 with tab1:
     st.header("Upload Experimental Data to mODEl")
     
-    # Multi-dataset upload
-    st.subheader("Multi-Dataset Upload")
-    st.info("Upload multiple datasets for different variables in your ODE system. Each dataset should have 'time' and 'value' columns.")
+    # Data upload method selection
+    upload_method = st.radio(
+        "Choose upload method:",
+        ["Individual Files", "Batch Folder Upload"],
+        help="Upload individual files or process multiple files as batch jobs"
+    )
     
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # Dynamic dataset upload
-        uploaded_file = st.file_uploader(
-            "Choose a file (txt or csv)",
-            type=['txt', 'csv'],
-            help="Upload experimental data with 'time' and 'value' columns for analysis in mODEl"
-        )
+    if upload_method == "Individual Files":
+        # Original multi-dataset upload
+        st.subheader("Multi-Dataset Upload")
+        st.info("Upload multiple datasets for different variables in your ODE system. Each dataset should have 'time' and 'value' columns.")
         
-        # Auto-detect dataset name from filename
-        if uploaded_file is not None:
-            # Extract filename without extension for default dataset name
-            default_name = uploaded_file.name.rsplit('.', 1)[0]
-            dataset_name = st.text_input("Dataset Name", value=default_name, placeholder="e.g., viral_load, interferon")
-        else:
-            dataset_name = st.text_input("Dataset Name", placeholder="e.g., viral_load, interferon")
+        col1, col2 = st.columns([2, 1])
         
-        if uploaded_file is not None and dataset_name:
-            try:
-                # Read the file with better parsing
-                if uploaded_file.name.endswith('.csv'):
-                    data = pd.read_csv(uploaded_file)
-                else:
-                    # Try different delimiters for TXT files
-                    content = uploaded_file.read().decode('utf-8')
-                    uploaded_file.seek(0)  # Reset file pointer
-                    
-                    # Detect delimiter
-                    if '\t' in content:
-                        data = pd.read_csv(uploaded_file, delimiter='\t')
-                    elif ',' in content:
-                        data = pd.read_csv(uploaded_file, delimiter=',')
-                    elif ';' in content:
-                        data = pd.read_csv(uploaded_file, delimiter=';')
-                    elif ' ' in content:
-                        data = pd.read_csv(uploaded_file, delimiter=r'\s+', engine='python')
-                    else:
-                        data = pd.read_csv(uploaded_file, delimiter='\t')
-                
-                # Clean column names (remove extra whitespace)
-                data.columns = data.columns.str.strip()
-                
-                # Check for required columns (case insensitive)
-                col_names = [col.lower() for col in data.columns]
-                time_col = None
-                value_col = None
-                
-                # Find time column
-                for col in data.columns:
-                    if col.lower() in ['time', 't', 'times']:
-                        time_col = col
-                        break
-                
-                # Find value column
-                for col in data.columns:
-                    if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
-                        value_col = col
-                        break
-                
-                if time_col is None or value_col is None:
-                    st.error(f"Data must have 'time' and 'value' columns. Found columns: {', '.join(data.columns)}")
-                    st.info("Acceptable column names:\n- Time: 'time', 't', 'times'\n- Value: 'value', 'val', 'values', 'concentration', 'conc', 'amount'")
-                else:
-                    # Standardize column names
-                    if time_col != 'time':
-                        data = data.rename(columns={time_col: 'time'})
-                    if value_col != 'value':
-                        data = data.rename(columns={value_col: 'value'})
-                    
-                    # Validate data types
-                    data['time'] = pd.to_numeric(data['time'], errors='coerce')
-                    data['value'] = pd.to_numeric(data['value'], errors='coerce')
-                    
-                    # Remove rows with NaN values
-                    data = data.dropna()
-                    
-                    if len(data) == 0:
-                        st.error("No valid data rows found after cleaning")
-                    else:
-                        st.session_state.datasets[dataset_name] = data
-                        st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(data)} data points)")
-                        
-                        # Show column mapping info
-                        if time_col != 'time' or value_col != 'value':
-                            st.info(f"Column mapping: '{time_col}' → time, '{value_col}' → value")
-                    
-            except Exception as e:
-                st.error(f"Error loading file: {str(e)}")
-                st.info("Make sure your file has columns for time and values, separated by tabs, commas, or spaces.")
-        
-        # Remove dataset button
-        if st.session_state.datasets:
-            dataset_to_remove = st.selectbox("Remove Dataset", [""] + list(st.session_state.datasets.keys()))
-            if dataset_to_remove and st.button("Remove Selected Dataset"):
-                del st.session_state.datasets[dataset_to_remove]
-                st.rerun()
-    
-    with col2:
-        if st.session_state.datasets:
-            st.subheader("Loaded Datasets")
-            for name, data in st.session_state.datasets.items():
-                st.info(f"""
-                **{name}**
-                - Rows: {len(data)}
-                - Time range: {data['time'].min():.2f} - {data['time'].max():.2f}
-                - Value range: {data['value'].min():.2f} - {data['value'].max():.2f}
-                """)
-    
-    # Data visualization
-    if st.session_state.datasets:
-        st.subheader("Data Visualization")
-        
-        # Create combined plot based on selected style
-        if plot_style == "plotly":
-            # Use Plotly for visualization
-            n_datasets = len(st.session_state.datasets)
-            
-            if n_datasets == 1:
-                # Single plot
-                fig = go.Figure()
-                for name, data in st.session_state.datasets.items():
-                    fig.add_trace(go.Scatter(
-                        x=data['time'],
-                        y=data['value'],
-                        mode='lines+markers',
-                        name=name,
-                        line=dict(width=2),
-                        marker=dict(size=6)
-                    ))
-                fig.update_layout(
-                    title=f"Dataset Visualization",
-                    xaxis_title="Time",
-                    yaxis_title="Value",
-                    template='plotly_white',
-                    hovermode='x unified'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                # Subplots for multiple datasets
-                cols = 2
-                rows = (n_datasets + cols - 1) // cols
-                
-                fig = make_subplots(
-                    rows=rows, cols=cols,
-                    subplot_titles=[name for name in st.session_state.datasets.keys()],
-                    vertical_spacing=0.1,
-                    horizontal_spacing=0.1
-                )
-                
-                for i, (name, data) in enumerate(st.session_state.datasets.items()):
-                    row = (i // cols) + 1
-                    col = (i % cols) + 1
-                    
-                    fig.add_trace(
-                        go.Scatter(
-                            x=data['time'],
-                            y=data['value'],
-                            mode='lines+markers',
-                            name=name,
-                            line=dict(width=2),
-                            marker=dict(size=6),
-                            showlegend=False
-                        ),
-                        row=row, col=col
-                    )
-                
-                fig.update_layout(
-                    height=400*rows,
-                    title_text="Multi-Dataset Visualization",
-                    template='plotly_white'
-                )
-                fig.update_xaxes(title_text="Time")
-                fig.update_yaxes(title_text="Value")
-                
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            # Use matplotlib for visualization
-            fig = plt.figure(figsize=(12, 8))
-            
-            n_datasets = len(st.session_state.datasets)
-            if n_datasets == 1:
-                # Single plot
-                for name, data in st.session_state.datasets.items():
-                    plt.plot(data['time'], data['value'], 'o-', label=name)
-                    plt.xlabel('Time')
-                    plt.ylabel('Value')
-                    plt.title(f'Dataset: {name}')
-                    plt.legend()
-                    plt.grid(True, alpha=0.3)
-            else:
-                # Subplots for multiple datasets
-                cols = 2
-                rows = (n_datasets + cols - 1) // cols
-                
-                for i, (name, data) in enumerate(st.session_state.datasets.items()):
-                    plt.subplot(rows, cols, i + 1)
-                    plt.plot(data['time'], data['value'], 'o-', label=name)
-                    plt.xlabel('Time')
-                    plt.ylabel('Value')
-                    plt.title(f'Dataset: {name}')
-                    plt.legend()
-                    plt.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            st.pyplot(fig)
-        
-        # Enhanced Data statistics with clickable table
-        st.subheader("📊 Dataset Statistics")
-        
-        # Create summary statistics table
-        if st.button("📋 Show/Hide Detailed Statistics Table", key="stats_table_toggle"):
-            if 'show_stats_table' not in st.session_state:
-                st.session_state.show_stats_table = False
-            st.session_state.show_stats_table = not st.session_state.show_stats_table
-        
-        # Show basic summary always
-        st.markdown("**Quick Summary:**")
-        summary_cols = st.columns(len(st.session_state.datasets))
-        for i, (name, data) in enumerate(st.session_state.datasets.items()):
-            with summary_cols[i]:
-                st.metric(f"{name} Points", len(data))
-                st.metric(f"{name} Time Range", f"{data['time'].min():.2f} - {data['time'].max():.2f}")
-                st.metric(f"{name} Value Range", f"{data['value'].min():.2f} - {data['value'].max():.2f}")
-        
-        # Show detailed statistics table if toggled
-        if hasattr(st.session_state, 'show_stats_table') and st.session_state.show_stats_table:
-            st.markdown("**📋 Detailed Statistics Table:**")
-            
-            # Create comprehensive statistics
-            stats_data = []
-            for name, data in st.session_state.datasets.items():
-                stats_data.append({
-                    'Dataset': name,
-                    'Count': len(data),
-                    'Time Min': data['time'].min(),
-                    'Time Max': data['time'].max(),
-                    'Time Range': data['time'].max() - data['time'].min(),
-                    'Time Mean': data['time'].mean(),
-                    'Time Std': data['time'].std(),
-                    'Value Min': data['value'].min(),
-                    'Value Max': data['value'].max(),
-                    'Value Range': data['value'].max() - data['value'].min(),
-                    'Value Mean': data['value'].mean(),
-                    'Value Std': data['value'].std(),
-                    'Value Median': data['value'].median(),
-                    'Value Q25': data['value'].quantile(0.25),
-                    'Value Q75': data['value'].quantile(0.75),
-                    'Value Skew': data['value'].skew(),
-                    'Value Kurtosis': data['value'].kurtosis(),
-                    'Missing Values': data.isnull().sum().sum(),
-                    'Duplicate Rows': data.duplicated().sum()
-                })
-            
-            stats_df = pd.DataFrame(stats_data)
-            
-            # Display with formatting
-            st.dataframe(
-                stats_df.style.format({
-                    'Time Min': '{:.4f}',
-                    'Time Max': '{:.4f}',
-                    'Time Range': '{:.4f}',
-                    'Time Mean': '{:.4f}',
-                    'Time Std': '{:.4f}',
-                    'Value Min': '{:.4f}',
-                    'Value Max': '{:.4f}',
-                    'Value Range': '{:.4f}',
-                    'Value Mean': '{:.4f}',
-                    'Value Std': '{:.4f}',
-                    'Value Median': '{:.4f}',
-                    'Value Q25': '{:.4f}',
-                    'Value Q75': '{:.4f}',
-                    'Value Skew': '{:.4f}',
-                    'Value Kurtosis': '{:.4f}'
-                }),
-                use_container_width=True
+        with col1:
+            # Dynamic dataset upload
+            uploaded_file = st.file_uploader(
+                "Choose a file (txt or csv)",
+                type=['txt', 'csv'],
+                help="Upload experimental data with 'time' and 'value' columns for analysis in mODEl"
             )
             
-            # Export statistics option
-            if st.button("📥 Export Statistics Table", key="export_stats"):
-                csv_buffer = io.StringIO()
-                stats_df.to_csv(csv_buffer, index=False)
-                st.download_button(
-                    label="Download mODEl Statistics CSV",
-                    data=csv_buffer.getvalue(),
-                    file_name=f"mODEl_dataset_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
+            # Auto-detect dataset name from filename
+            if uploaded_file is not None:
+                # Extract filename without extension for default dataset name
+                default_name = uploaded_file.name.rsplit('.', 1)[0]
+                dataset_name = st.text_input("Dataset Name", value=default_name, placeholder="e.g., viral_load, interferon")
+            else:
+                dataset_name = st.text_input("Dataset Name", placeholder="e.g., viral_load, interferon")
             
-            # Individual dataset detailed views
-            st.markdown("**🔍 Individual Dataset Details:**")
-            selected_dataset = st.selectbox("Select dataset for detailed analysis:", 
-                                          list(st.session_state.datasets.keys()),
-                                          key="detailed_dataset_select")
-            
-            if selected_dataset:
-                data = st.session_state.datasets[selected_dataset]
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown(f"**{selected_dataset} - Raw Data Preview:**")
-                    st.dataframe(data.head(10), use_container_width=True)
-                    st.markdown(f"**{selected_dataset} - Descriptive Statistics:**")
-                    st.dataframe(data.describe(), use_container_width=True)
-                
-                with col2:
-                    st.markdown(f"**{selected_dataset} - Data Distribution:**")
-                    
-                    # Create distribution plot based on selected style
-                    if plot_style == "plotly":
-                        # Use Plotly for distribution plots
-                        from plotly.subplots import make_subplots
-                        
-                        fig = make_subplots(
-                            rows=1, cols=2,
-                            subplot_titles=[f'{selected_dataset} - Time Distribution', 
-                                          f'{selected_dataset} - Value Distribution'],
-                            horizontal_spacing=0.15
-                        )
-                        
-                        # Time distribution
-                        fig.add_trace(
-                            go.Histogram(
-                                x=data['time'],
-                                name='Time',
-                                marker_color='skyblue',
-                                opacity=0.7,
-                                showlegend=False
-                            ),
-                            row=1, col=1
-                        )
-                        
-                        # Value distribution
-                        fig.add_trace(
-                            go.Histogram(
-                                x=data['value'],
-                                name='Value',
-                                marker_color='lightcoral',
-                                opacity=0.7,
-                                showlegend=False
-                            ),
-                            row=1, col=2
-                        )
-                        
-                        fig.update_layout(
-                            height=400,
-                            template='plotly_white',
-                            title_text=f'{selected_dataset} - Data Distributions'
-                        )
-                        fig.update_xaxes(title_text="Time", row=1, col=1)
-                        fig.update_xaxes(title_text="Value", row=1, col=2)
-                        fig.update_yaxes(title_text="Frequency", row=1, col=1)
-                        fig.update_yaxes(title_text="Frequency", row=1, col=2)
-                        
-                        st.plotly_chart(fig, use_container_width=True)
+            if uploaded_file is not None and dataset_name:
+                try:
+                    # Read the file with better parsing
+                    if uploaded_file.name.endswith('.csv'):
+                        data = pd.read_csv(uploaded_file)
                     else:
-                        # Use matplotlib for distribution plots
-                        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+                        # Try different delimiters for TXT files
+                        content = uploaded_file.read().decode('utf-8')
+                        uploaded_file.seek(0)  # Reset file pointer
                         
-                        # Time distribution
-                        ax1.hist(data['time'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-                        ax1.set_xlabel('Time')
-                        ax1.set_ylabel('Frequency')
-                        ax1.set_title(f'{selected_dataset} - Time Distribution')
-                        ax1.grid(True, alpha=0.3)
-                        
-                        # Value distribution
-                        ax2.hist(data['value'], bins=20, alpha=0.7, color='lightcoral', edgecolor='black')
-                        ax2.set_xlabel('Value')
-                        ax2.set_ylabel('Frequency')
-                        ax2.set_title(f'{selected_dataset} - Value Distribution')
-                        ax2.grid(True, alpha=0.3)
-                        
-                        plt.tight_layout()
-                        st.pyplot(fig)
-                    
-                    # Data quality checks
-                    st.markdown(f"**{selected_dataset} - Data Quality:**")
-                    quality_checks = {
-                        'Missing Values': data.isnull().sum().sum(),
-                        'Duplicate Rows': data.duplicated().sum(),
-                        'Negative Values': (data['value'] < 0).sum(),
-                        'Zero Values': (data['value'] == 0).sum(),
-                        'Infinite Values': np.isinf(data['value']).sum(),
-                        'Monotonic Time': data['time'].is_monotonic_increasing,
-                        'Unique Time Points': len(data['time'].unique()),
-                        'Time Gaps > Mean': ((data['time'].diff() > data['time'].diff().mean() * 2).sum() - 1)
-                    }
-                    
-                    for check, value in quality_checks.items():
-                        if check == 'Monotonic Time':
-                            st.metric(check, "✅ Yes" if value else "❌ No")
+                        # Detect delimiter
+                        if '\t' in content:
+                            data = pd.read_csv(uploaded_file, delimiter='\t')
+                        elif ',' in content:
+                            data = pd.read_csv(uploaded_file, delimiter=',')
+                        elif ';' in content:
+                            data = pd.read_csv(uploaded_file, delimiter=';')
+                        elif ' ' in content:
+                            data = pd.read_csv(uploaded_file, delimiter=r'\s+', engine='python')
                         else:
-                            st.metric(check, value)
+                            data = pd.read_csv(uploaded_file, delimiter='\t')
+                    
+                    # Clean column names (remove extra whitespace)
+                    data.columns = data.columns.str.strip()
+                    
+                    # Check for required columns (case insensitive)
+                    col_names = [col.lower() for col in data.columns]
+                    time_col = None
+                    value_col = None
+                    
+                    # Find time column
+                    for col in data.columns:
+                        if col.lower() in ['time', 't', 'times']:
+                            time_col = col
+                            break
+                    
+                    # Find value column
+                    for col in data.columns:
+                        if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
+                            value_col = col
+                            break
+                    
+                    if time_col is None or value_col is None:
+                        st.error(f"Data must have 'time' and 'value' columns. Found columns: {', '.join(data.columns)}")
+                        st.info("Acceptable column names:\n- Time: 'time', 't', 'times'\n- Value: 'value', 'val', 'values', 'concentration', 'conc', 'amount'")
+                    else:
+                        # Standardize column names
+                        if time_col != 'time':
+                            data = data.rename(columns={time_col: 'time'})
+                        if value_col != 'value':
+                            data = data.rename(columns={value_col: 'value'})
+                        
+                        # Validate data types
+                        data['time'] = pd.to_numeric(data['time'], errors='coerce')
+                        data['value'] = pd.to_numeric(data['value'], errors='coerce')
+                        
+                        # Remove rows with NaN values
+                        data = data.dropna()
+                        
+                        if len(data) == 0:
+                            st.error("No valid data rows found after cleaning")
+                        else:
+                            st.session_state.datasets[dataset_name] = data
+                            st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(data)} data points)")
+                            
+                            # Show column mapping info
+                            if time_col != 'time' or value_col != 'value':
+                                st.info(f"Column mapping: '{time_col}' → time, '{value_col}' → value")
+                        
+                except Exception as e:
+                    st.error(f"Error loading file: {str(e)}")
+                    st.info("Make sure your file has columns for time and values, separated by tabs, commas, or spaces.")
+            
+            # Remove dataset button
+            if st.session_state.datasets:
+                dataset_to_remove = st.selectbox("Remove Dataset", [""] + list(st.session_state.datasets.keys()))
+                if dataset_to_remove and st.button("Remove Selected Dataset"):
+                    del st.session_state.datasets[dataset_to_remove]
+                    st.rerun()
         
-        # Data validation warnings
-        st.subheader("⚠️ Data Validation")
-        validation_issues = []
+        with col2:
+            if st.session_state.datasets:
+                st.subheader("Loaded Datasets")
+                for name, data in st.session_state.datasets.items():
+                    st.info(f"""
+                    **{name}**
+                    - Rows: {len(data)}
+                    - Time range: {data['time'].min():.2f} - {data['time'].max():.2f}
+                    - Value range: {data['value'].min():.2f} - {data['value'].max():.2f}
+                    """)
+    
+    else:  # Batch Folder Upload
+        st.subheader("📁 Batch Folder Upload")
+        st.info("""
+        Upload multiple files at once to create separate analysis jobs. Each job can contain multiple related datasets.
+        - Upload multiple files containing experimental data
+        - Each folder/group becomes a separate modeling job
+        - Process jobs independently with different ODE systems and parameters
+        """)
         
-        for name, data in st.session_state.datasets.items():
-            # Check for common issues
-            if data.isnull().sum().sum() > 0:
-                validation_issues.append(f"❌ {name}: Contains {data.isnull().sum().sum()} missing values")
-            if data.duplicated().sum() > 0:
-                validation_issues.append(f"⚠️ {name}: Contains {data.duplicated().sum()} duplicate rows")
-            if (data['value'] < 0).sum() > 0:
-                validation_issues.append(f"⚠️ {name}: Contains {(data['value'] < 0).sum()} negative values")
-            if not data['time'].is_monotonic_increasing:
-                validation_issues.append(f"⚠️ {name}: Time points are not monotonically increasing")
-            if len(data) < 5:
-                validation_issues.append(f"⚠️ {name}: Very few data points ({len(data)}), consider adding more")
+        # Multiple file uploader for batch processing
+        uploaded_files = st.file_uploader(
+            "Choose multiple files (txt or csv)",
+            type=['txt', 'csv'],
+            accept_multiple_files=True,
+            help="Upload multiple data files to create batch jobs for analysis in mODEl"
+        )
         
-        if validation_issues:
-            st.warning("**Data Validation Issues Found:**")
-            for issue in validation_issues:
-                st.markdown(f"- {issue}")
-        else:
-            st.success("✅ All datasets passed validation checks!")
+        if uploaded_files:
+            st.write(f"**{len(uploaded_files)} files uploaded**")
+            
+            # Group files by prefix or organize them
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                st.subheader("Job Organization")
+                job_organization = st.radio(
+                    "How to organize files into jobs:",
+                    ["Create separate job for each file", "Group by filename prefix", "Group all files into one job"],
+                    help="Choose how to organize the uploaded files into modeling jobs"
+                )
+                
+                # Job naming and organization
+                if job_organization == "Create separate job for each file":
+                    # Each file becomes its own job
+                    organized_jobs = {}
+                    for file in uploaded_files:
+                        job_name = file.name.rsplit('.', 1)[0]  # Remove extension
+                        organized_jobs[job_name] = [file]
+                
+                elif job_organization == "Group by filename prefix":
+                    # Group files by common prefix (before underscore or dash)
+                    organized_jobs = {}
+                    for file in uploaded_files:
+                        # Extract prefix (before first underscore or dash)
+                        base_name = file.name.rsplit('.', 1)[0]
+                        if '_' in base_name:
+                            prefix = base_name.split('_')[0]
+                        elif '-' in base_name:
+                            prefix = base_name.split('-')[0]
+                        else:
+                            prefix = base_name
+                        
+                        if prefix not in organized_jobs:
+                            organized_jobs[prefix] = []
+                        organized_jobs[prefix].append(file)
+                
+                else:  # Group all files into one job
+                    organized_jobs = {"batch_job": uploaded_files}
+                
+                # Display organization
+                st.write("**Proposed Job Organization:**")
+                for job_name, files in organized_jobs.items():
+                    st.write(f"- **{job_name}**: {len(files)} files")
+                    for file in files:
+                        st.write(f"  - {file.name}")
+            
+            with col2:
+                st.subheader("Process Batch Jobs")
+                
+                if st.button("🚀 Create Batch Jobs", type="primary"):
+                    # Process each job
+                    jobs_created = 0
+                    jobs_failed = 0
+                    
+                    for job_name, files in organized_jobs.items():
+                        try:
+                            # Process files for this job
+                            job_datasets = {}
+                            
+                            for file in files:
+                                # Read and process each file
+                                try:
+                                    if file.name.endswith('.csv'):
+                                        data = pd.read_csv(file)
+                                    else:
+                                        # Try different delimiters for TXT files
+                                        content = file.read().decode('utf-8')
+                                        file.seek(0)  # Reset file pointer
+                                        
+                                        # Detect delimiter
+                                        if '\t' in content:
+                                            data = pd.read_csv(file, delimiter='\t')
+                                        elif ',' in content:
+                                            data = pd.read_csv(file, delimiter=',')
+                                        elif ';' in content:
+                                            data = pd.read_csv(file, delimiter=';')
+                                        elif ' ' in content:
+                                            data = pd.read_csv(file, delimiter=r'\s+', engine='python')
+                                        else:
+                                            data = pd.read_csv(file, delimiter='\t')
+                                    
+                                    # Clean column names
+                                    data.columns = data.columns.str.strip()
+                                    
+                                    # Find time and value columns
+                                    time_col = None
+                                    value_col = None
+                                    
+                                    for col in data.columns:
+                                        if col.lower() in ['time', 't', 'times']:
+                                            time_col = col
+                                            break
+                                    
+                                    for col in data.columns:
+                                        if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
+                                            value_col = col
+                                            break
+                                    
+                                    if time_col and value_col:
+                                        # Standardize column names
+                                        if time_col != 'time':
+                                            data = data.rename(columns={time_col: 'time'})
+                                        if value_col != 'value':
+                                            data = data.rename(columns={value_col: 'value'})
+                                        
+                                        # Validate data types
+                                        data['time'] = pd.to_numeric(data['time'], errors='coerce')
+                                        data['value'] = pd.to_numeric(data['value'], errors='coerce')
+                                        
+                                        # Remove rows with NaN values
+                                        data = data.dropna()
+                                        
+                                        if len(data) > 0:
+                                            dataset_name = file.name.rsplit('.', 1)[0]
+                                            job_datasets[dataset_name] = data
+                                
+                                except Exception as e:
+                                    st.warning(f"Could not process file {file.name}: {str(e)}")
+                            
+                            # Create job if datasets were successfully processed
+                            if job_datasets:
+                                st.session_state.batch_jobs[job_name] = {
+                                    'datasets': job_datasets,
+                                    'status': 'ready',
+                                    'created': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    # Core ODE settings
+                                    'ode_system': '',
+                                    'param_names': [],
+                                    'initial_conditions': [],
+                                    'dataset_mapping': {},
+                                    'auto_detected_vars': 1,
+                                    'auto_detected_var_names': [],
+                                    # Advanced analytics settings
+                                    'bounds_code': '',
+                                    'parsed_bounds': {},
+                                    'parsed_initial_guesses': {},
+                                    'optimization_settings': {
+                                        'method': 'L-BFGS-B',
+                                        'tolerance': 1e-8,
+                                        'max_iter': 1000,
+                                        'multi_start': False,
+                                        'n_starts': 10,
+                                        'use_relative_error': True
+                                    },
+                                    'bootstrap_settings': {
+                                        'n_samples': 100,
+                                        'method': 'Residual Resampling',
+                                        'confidence_level': 95
+                                    },
+                                    'visualization_settings': {
+                                        'plot_style': 'plotly',
+                                        'show_phase_portrait': False,
+                                        'show_distributions': False
+                                    },
+                                    # Results
+                                    'fit_results': None,
+                                    'bootstrap_results': None
+                                }
+                                jobs_created += 1
+                            else:
+                                jobs_failed += 1
+                        
+                        except Exception as e:
+                            st.error(f"Error creating job {job_name}: {str(e)}")
+                            jobs_failed += 1
+                    
+                    if jobs_created > 0:
+                        st.success(f"✅ Successfully created {jobs_created} batch jobs!")
+                        if jobs_failed > 0:
+                            st.warning(f"⚠️ {jobs_failed} jobs failed to create")
+                        st.rerun()
+                    else:
+                        st.error("❌ No jobs could be created. Check your file formats.")
+        
+        # Display existing batch jobs
+        if st.session_state.batch_jobs:
+            st.subheader("📋 Batch Jobs Management")
+            
+            # Job selection and management
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Job selector
+                job_names = list(st.session_state.batch_jobs.keys())
+                selected_job = st.selectbox(
+                    "Select job to work on:",
+                    [""] + job_names,
+                    help="Select a batch job to work on. This will load its datasets into the main workspace."
+                )
+                
+                if selected_job:
+                    job_data = st.session_state.batch_jobs[selected_job]
+                    
+                    st.write(f"**Job: {selected_job}**")
+                    st.write(f"- Status: {job_data['status']}")
+                    st.write(f"- Created: {job_data['created']}")
+                    st.write(f"- Datasets: {len(job_data['datasets'])}")
+                    
+                    # List datasets in this job
+                    for dataset_name, data in job_data['datasets'].items():
+                        st.write(f"  - {dataset_name}: {len(data)} points")
+                    
+                    col_load, col_delete = st.columns(2)
+                    
+                    with col_load:
+                        if st.button(f"🔄 Load Job '{selected_job}'", type="primary"):
+                            # Load job data into main workspace
+                            st.session_state.datasets = job_data['datasets'].copy()
+                            st.session_state.active_job = selected_job
+                            
+                            # Load job's core ODE system and parameters
+                            st.session_state.ode_system = job_data.get('ode_system', '')
+                            st.session_state.param_names = job_data.get('param_names', [])
+                            st.session_state.initial_conditions = job_data.get('initial_conditions', [])
+                            st.session_state.dataset_mapping = job_data.get('dataset_mapping', {})
+                            st.session_state.auto_detected_vars = job_data.get('auto_detected_vars', 1)
+                            st.session_state.auto_detected_var_names = job_data.get('auto_detected_var_names', [])
+                            
+                            # Load advanced analytics settings
+                            st.session_state.bounds_code = job_data.get('bounds_code', '')
+                            st.session_state.parsed_bounds = job_data.get('parsed_bounds', {})
+                            st.session_state.parsed_initial_guesses = job_data.get('parsed_initial_guesses', {})
+                            
+                            # Load optimization settings
+                            if 'optimization_settings' in job_data:
+                                st.session_state.optimization_settings.update(job_data['optimization_settings'])
+                            
+                            # Load bootstrap settings
+                            if 'bootstrap_settings' in job_data:
+                                st.session_state.bootstrap_settings.update(job_data['bootstrap_settings'])
+                            
+                            # Load visualization settings
+                            if 'visualization_settings' in job_data:
+                                st.session_state.visualization_settings.update(job_data['visualization_settings'])
+                            
+                            # Load results
+                            st.session_state.fit_results = job_data.get('fit_results')
+                            st.session_state.bootstrap_results = job_data.get('bootstrap_results')
+                            
+                            st.success(f"✅ Loaded job '{selected_job}' with all advanced analytics settings!")
+                            st.rerun()
+                    
+                    with col_delete:
+                        if st.button(f"🗑️ Delete Job", key=f"delete_{selected_job}"):
+                            del st.session_state.batch_jobs[selected_job]
+                            if st.session_state.active_job == selected_job:
+                                st.session_state.active_job = None
+                            st.rerun()
+            
+            with col2:
+                # Current active job display
+                if st.session_state.active_job:
+                    st.info(f"**Active Job:** {st.session_state.active_job}")
+                    
+                    if st.button("💾 Save Current State to Job"):
+                        # Save current workspace state back to the active job
+                        job_data = st.session_state.batch_jobs[st.session_state.active_job]
+                        
+                        # Save core ODE settings
+                        job_data['ode_system'] = st.session_state.ode_system
+                        job_data['param_names'] = st.session_state.param_names
+                        job_data['initial_conditions'] = st.session_state.initial_conditions
+                        job_data['dataset_mapping'] = st.session_state.dataset_mapping
+                        job_data['auto_detected_vars'] = st.session_state.auto_detected_vars
+                        job_data['auto_detected_var_names'] = st.session_state.auto_detected_var_names
+                        
+                        # Save advanced analytics settings
+                        job_data['bounds_code'] = st.session_state.bounds_code
+                        job_data['parsed_bounds'] = st.session_state.parsed_bounds
+                        job_data['parsed_initial_guesses'] = st.session_state.parsed_initial_guesses
+                        job_data['optimization_settings'] = st.session_state.optimization_settings.copy()
+                        job_data['bootstrap_settings'] = st.session_state.bootstrap_settings.copy()
+                        job_data['visualization_settings'] = st.session_state.visualization_settings.copy()
+                        
+                        # Save results
+                        job_data['fit_results'] = st.session_state.fit_results
+                        job_data['bootstrap_results'] = st.session_state.bootstrap_results
+                        
+                        # Update status
+                        job_data['status'] = 'configured' if st.session_state.ode_system else 'ready'
+                        
+                        st.success(f"✅ Saved current state with all advanced settings to job '{st.session_state.active_job}'")
+                else:
+                    st.warning("No active job selected")
+            
+            # Jobs summary table
+            st.subheader("📊 Jobs Summary")
+            
+            job_summary = []
+            for job_name, job_data in st.session_state.batch_jobs.items():
+                job_summary.append({
+                    'Job Name': job_name,
+                    'Status': job_data['status'],
+                    'Datasets': len(job_data['datasets']),
+                    'ODE Defined': '✅' if job_data['ode_system'] else '❌',
+                    'Fitted': '✅' if job_data['fit_results'] else '❌',
+                    'Bootstrap': '✅' if job_data['bootstrap_results'] else '❌',
+                    'Created': job_data['created']
+                })
+            
+            if job_summary:
+                summary_df = pd.DataFrame(job_summary)
+                st.dataframe(summary_df, use_container_width=True)
+                
+                # Export jobs summary
+                if st.button("📥 Export Jobs Summary"):
+                    csv_buffer = io.StringIO()
+                    summary_df.to_csv(csv_buffer, index=False)
+                    st.download_button(
+                        label="Download Jobs Summary CSV",
+                        data=csv_buffer.getvalue(),
+                        file_name=f"mODEl_batch_jobs_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
 
 # Tab 2: ODE Definition (updated for multi-dataset)
 with tab2:
@@ -793,14 +924,68 @@ with tab2:
                 st.write("**Initial Conditions:**")
                 st.markdown(f"*Setting initial conditions for {n_vars} state variables*")
                 
+                # Option to set initial conditions from first data values
+                with st.expander("🔧 Initial Condition Options"):
+                    ic_method = st.radio(
+                        "How to set initial conditions:",
+                        ["Manual Input", "Use First Data Values", "Use Dataset-Specific First Values"],
+                        help="Choose how to set initial conditions for state variables"
+                    )
+                    
+                    if ic_method == "Use First Data Values":
+                        st.info("""
+                        **Use First Data Values**: Uses the first value from each mapped dataset as the initial condition.
+                        - Automatically sets initial conditions based on actual data
+                        - Requires datasets to be mapped to state variables first
+                        - Good for cases where t=0 represents the actual starting point of your measurements
+                        """)
+                    elif ic_method == "Use Dataset-Specific First Values":
+                        st.info("""
+                        **Use Dataset-Specific First Values**: Like above, but allows you to choose which dataset's first value to use for each state variable.
+                        - More control over which dataset provides each initial condition
+                        - Useful when you have multiple datasets for related variables
+                        """)
+                    else:
+                        st.info("""
+                        **Manual Input**: Set initial conditions manually using number inputs.
+                        - Full control over initial values
+                        - Good for theoretical starting points that may differ from measured values
+                        """)
+                
                 initial_conditions = []
                 
-                # Create initial condition inputs
-                if n_vars <= 3:
-                    # Single row for 1-3 variables
-                    cols = st.columns(n_vars)
-                    for i in range(n_vars):
-                        with cols[i]:
+                # Get stable job identifier for widget keys
+                job_key = st.session_state.active_job if st.session_state.active_job else 'main'
+                
+                if ic_method == "Manual Input":
+                    # Original manual input method with stable keys
+                    if n_vars <= 3:
+                        # Single row for 1-3 variables
+                        cols = st.columns(n_vars)
+                        for i in range(n_vars):
+                            with cols[i]:
+                                if var_names and i < len(var_names):
+                                    label = f"{var_names[i]}(0)"
+                                    help_text = f"Initial condition for {var_names[i]}"
+                                else:
+                                    label = f"y[{i}](0)"
+                                    help_text = f"Initial condition for y[{i}]"
+                                
+                                # Use stable key and preserve existing values
+                                current_value = 0.0
+                                if i < len(st.session_state.initial_conditions):
+                                    current_value = st.session_state.initial_conditions[i]
+                                
+                                ic = st.number_input(
+                                    label, 
+                                    value=current_value, 
+                                    key=f"manual_ic_{i}_{job_key}", 
+                                    help=help_text
+                                )
+                                initial_conditions.append(ic)
+                    else:
+                        # Multiple rows for >3 variables
+                        for i in range(n_vars):
                             if var_names and i < len(var_names):
                                 label = f"{var_names[i]}(0)"
                                 help_text = f"Initial condition for {var_names[i]}"
@@ -808,20 +993,100 @@ with tab2:
                                 label = f"y[{i}](0)"
                                 help_text = f"Initial condition for y[{i}]"
                             
-                            ic = st.number_input(label, value=0.0, key=f"ic_{i}", help=help_text)
+                            # Use stable key and preserve existing values
+                            current_value = 0.0
+                            if i < len(st.session_state.initial_conditions):
+                                current_value = st.session_state.initial_conditions[i]
+                            
+                            ic = st.number_input(
+                                label, 
+                                value=current_value, 
+                                key=f"manual_ic_{i}_{job_key}", 
+                                help=help_text
+                            )
                             initial_conditions.append(ic)
-                else:
-                    # Multiple rows for >3 variables
-                    for i in range(n_vars):
-                        if var_names and i < len(var_names):
-                            label = f"{var_names[i]}(0)"
-                            help_text = f"Initial condition for {var_names[i]}"
-                        else:
-                            label = f"y[{i}](0)"
-                            help_text = f"Initial condition for y[{i}]"
+                
+                elif ic_method == "Use First Data Values":
+                    # Automatically use first values from mapped datasets
+                    if hasattr(st.session_state, 'dataset_mapping') and st.session_state.dataset_mapping:
+                        # Create initial conditions based on dataset mapping
+                        for i in range(n_vars):
+                            # Find which dataset maps to this state variable
+                            mapped_dataset = None
+                            for dataset_name, var_idx in st.session_state.dataset_mapping.items():
+                                if var_idx == i:
+                                    mapped_dataset = dataset_name
+                                    break
+                            
+                            if mapped_dataset and mapped_dataset in st.session_state.datasets:
+                                # Use first value from the mapped dataset
+                                first_value = st.session_state.datasets[mapped_dataset]['value'].iloc[0]
+                                initial_conditions.append(first_value)
+                                
+                                # Display the auto-set value
+                                if var_names and i < len(var_names):
+                                    st.info(f"{var_names[i]}(0) = {first_value:.4f} (from {mapped_dataset})")
+                                else:
+                                    st.info(f"y[{i}](0) = {first_value:.4f} (from {mapped_dataset})")
+                            else:
+                                # No dataset mapped to this variable, use default
+                                initial_conditions.append(0.0)
+                                if var_names and i < len(var_names):
+                                    st.warning(f"{var_names[i]}(0) = 0.0 (no dataset mapped)")
+                                else:
+                                    st.warning(f"y[{i}](0) = 0.0 (no dataset mapped)")
+                    else:
+                        st.warning("⚠️ No dataset mapping found. Please map datasets to state variables first, or use manual input.")
+                        # Fall back to manual input
+                        for i in range(n_vars):
+                            initial_conditions.append(0.0)
+                
+                elif ic_method == "Use Dataset-Specific First Values":
+                    # Allow user to select which dataset to use for each variable
+                    dataset_names = list(st.session_state.datasets.keys())
+                    if dataset_names:
+                        st.write("**Select dataset for each initial condition:**")
                         
-                        ic = st.number_input(label, value=0.0, key=f"ic_{i}", help=help_text)
-                        initial_conditions.append(ic)
+                        for i in range(n_vars):
+                            col1, col2 = st.columns([1, 1])
+                            
+                            with col1:
+                                if var_names and i < len(var_names):
+                                    var_label = f"{var_names[i]}(0)"
+                                else:
+                                    var_label = f"y[{i}](0)"
+                                
+                                # Dropdown to select dataset with stable key
+                                selected_dataset = st.selectbox(
+                                    f"Dataset for {var_label}:",
+                                    ["Manual"] + dataset_names,
+                                    key=f"ic_dataset_select_{i}_{job_key}",
+                                    help=f"Choose which dataset's first value to use for {var_label}"
+                                )
+                            
+                            with col2:
+                                if selected_dataset == "Manual":
+                                    # Manual input with stable key
+                                    current_value = 0.0
+                                    if i < len(st.session_state.initial_conditions):
+                                        current_value = st.session_state.initial_conditions[i]
+                                    
+                                    ic = st.number_input(
+                                        f"{var_label} value:",
+                                        value=current_value,
+                                        key=f"ic_dataset_manual_{i}_{job_key}",
+                                        help=f"Manual initial condition for {var_label}"
+                                    )
+                                    initial_conditions.append(ic)
+                                else:
+                                    # Use first value from selected dataset
+                                    first_value = st.session_state.datasets[selected_dataset]['value'].iloc[0]
+                                    initial_conditions.append(first_value)
+                                    st.info(f"{var_label} = {first_value:.4f}")
+                    else:
+                        st.warning("⚠️ No datasets available. Please upload datasets first.")
+                        for i in range(n_vars):
+                            initial_conditions.append(0.0)
                 
                 st.session_state.initial_conditions = initial_conditions
                 
@@ -858,11 +1123,19 @@ with tab2:
                             mapping_options.append(option_label)
                         mapping_values.append(i)
                     
+                    # Determine current selection based on existing mapping
+                    current_selection = 0
+                    if dataset_name in st.session_state.dataset_mapping:
+                        current_var_idx = st.session_state.dataset_mapping[dataset_name]
+                        if current_var_idx < len(mapping_values):
+                            current_selection = current_var_idx
+                    
                     selected_idx = st.selectbox(
                         f"Variable for {dataset_name}:",
                         range(len(mapping_options)),
                         format_func=lambda x: mapping_options[x],
-                        key=f"map_{dataset_name}"
+                        index=current_selection,
+                        key=f"dataset_map_{dataset_name}_{job_key}"
                     )
                     
                     dataset_mapping[dataset_name] = mapping_values[selected_idx]
@@ -1430,7 +1703,7 @@ def ode_system(y, t, {', '.join(param_names)}):
                                             data_vals = data['value']
                                         
                                         # Calculate error
-                                        if use_relative_error:
+                                        if st.session_state.optimization_settings['use_relative_error']:
                                             error = ((model_vals - data_vals) / (np.abs(data_vals) + 1e-10))**2
                                         else:
                                             error = (model_vals - data_vals)**2
@@ -1448,12 +1721,12 @@ def ode_system(y, t, {', '.join(param_names)}):
                             x0 = [initial_guesses[param] for param in st.session_state.param_names]
                             
                             # Run optimization
-                            if multi_start:
+                            if st.session_state.optimization_settings['multi_start']:
                                 best_result = None
                                 best_cost = np.inf
                                 
                                 progress_bar = st.progress(0)
-                                for i in range(n_starts):
+                                for i in range(st.session_state.optimization_settings['n_starts']):
                                     # Random initial point
                                     x0_random = []
                                     for (low, high) in opt_bounds:
@@ -1462,20 +1735,20 @@ def ode_system(y, t, {', '.join(param_names)}):
                                         else:
                                             x0_random.append(np.random.lognormal(0, 1))
                                     
-                                    result = minimize(objective, x0_random, method=opt_method, 
-                                                    bounds=opt_bounds, options={'maxiter': max_iter})
+                                    result = minimize(objective, x0_random, method=st.session_state.optimization_settings['method'], 
+                                                    bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
                                     
                                     if result.fun < best_cost:
                                         best_result = result
                                         best_cost = result.fun
                                     
-                                    progress_bar.progress((i + 1) / n_starts)
+                                    progress_bar.progress((i + 1) / st.session_state.optimization_settings['n_starts'])
                                 
                                 result = best_result
                                 progress_bar.empty()
                             else:
-                                result = minimize(objective, x0, method=opt_method, 
-                                                bounds=opt_bounds, options={'maxiter': max_iter})
+                                result = minimize(objective, x0, method=st.session_state.optimization_settings['method'], 
+                                                bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
                             
                             # Store results
                             st.session_state.fit_results = {
@@ -1486,7 +1759,7 @@ def ode_system(y, t, {', '.join(param_names)}):
                                 'result_obj': result,
                                 'dataset_weights': dataset_weights,
                                 'fitting_options': {
-                                    'use_relative_error': use_relative_error,
+                                    'use_relative_error': st.session_state.optimization_settings['use_relative_error'],
                                     'use_log_transform': use_log_transform,
                                     'normalize_by_initial': normalize_by_initial
                                 }
@@ -1678,7 +1951,7 @@ def ode_system(y, t, {', '.join(param_names)}):
                                     args=tuple(fitted_params))
                     
                     # Create visualization
-                    if plot_style == "plotly":
+                    if st.session_state.visualization_settings['plot_style'] == "plotly":
                         fig = go.Figure()
                         
                         # Add experimental data
@@ -1784,218 +2057,19 @@ with tab5:
             st.subheader("Bootstrap Configuration")
             
             n_bootstrap_samples = st.number_input("Number of Bootstrap Samples", 
-                                                value=100, min_value=10, max_value=1000)
+                                                value=st.session_state.bootstrap_settings['n_samples'], min_value=10, max_value=1000)
             
             bootstrap_method = st.selectbox("Bootstrap Method", 
-                                          ["Residual Resampling", "Parametric Bootstrap"])
+                                          ["Residual Resampling", "Parametric Bootstrap"],
+                                          index=["Residual Resampling", "Parametric Bootstrap"].index(st.session_state.bootstrap_settings['method']))
             
-            confidence_level = st.selectbox("Confidence Level", [90, 95, 99], index=1)
+            confidence_level = st.selectbox("Confidence Level", [90, 95, 99], 
+                                           index=[90, 95, 99].index(st.session_state.bootstrap_settings['confidence_level']))
             
-            # Log display settings
-            st.subheader("📋 Log Display Settings")
-            log_frequency = st.selectbox("Log Every N Samples", [1, 5, 10, 20, 50], index=2)
-            max_logs_display = st.number_input("Max Logs to Display", 
-                                             value=10, min_value=5, max_value=50, 
-                                             help="Maximum number of recent logs to show during analysis")
-            
-            if st.button("🎯 Run Bootstrap Analysis", type="primary"):
-                # Initialize session state for bootstrap logs
-                if 'bootstrap_logs' not in st.session_state:
-                    st.session_state.bootstrap_logs = []
-                st.session_state.bootstrap_logs = []  # Clear previous logs
-                
-                with st.spinner(f"Running bootstrap analysis with {n_bootstrap_samples} samples..."):
-                    try:
-                        # Create ODE function
-                        def create_ode_func(param_names, ode_code):
-                            # Properly indent the user's ODE code
-                            lines = ode_code.strip().split('\n')
-                            indented_lines = []
-                            for line in lines:
-                                if line.strip():  # Only indent non-empty lines
-                                    indented_lines.append('    ' + line.strip())
-                                else:
-                                    indented_lines.append('')
-                            
-                            indented_code = '\n'.join(indented_lines)
-                            
-                            func_code = f"""
-def ode_system(y, t, {', '.join(param_names)}):
-{indented_code}
-"""
-                            exec(func_code, globals())
-                            return globals()['ode_system']
-                        
-                        ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
-                        
-                        # Get original fitted parameters
-                        best_params = [st.session_state.fit_results['params'][p] for p in st.session_state.param_names]
-                        
-                        # Calculate residuals for each dataset
-                        all_residuals = {}
-                        all_times = []
-                        for data in st.session_state.datasets.values():
-                            all_times.extend(data['time'].values)
-                        
-                        t_min, t_max = min(all_times), max(all_times)
-                        t_fine = np.linspace(t_min, t_max, 1000)
-                        
-                        # Solve with best parameters
-                        solution = odeint(ode_func, st.session_state.initial_conditions, t_fine, 
-                                        args=tuple(best_params))
-                        
-                        # Calculate residuals for each dataset
-                        for dataset_name, data in st.session_state.datasets.items():
-                            var_idx = st.session_state.dataset_mapping[dataset_name]
-                            model_vals = np.interp(data['time'], t_fine, solution[:, var_idx])
-                            residuals = data['value'] - model_vals
-                            all_residuals[dataset_name] = residuals
-                        
-                        # Bootstrap optimization function
-                        def bootstrap_objective(params, bootstrap_datasets):
-                            try:
-                                all_times_boot = []
-                                for data in bootstrap_datasets.values():
-                                    all_times_boot.extend(data['time'].values)
-                                
-                                t_boot = np.linspace(min(all_times_boot), max(all_times_boot), 500)
-                                sol = odeint(ode_func, st.session_state.initial_conditions, t_boot, 
-                                           args=tuple(params))
-                                
-                                total_ssr = 0
-                                for dataset_name, data in bootstrap_datasets.items():
-                                    var_idx = st.session_state.dataset_mapping[dataset_name]
-                                    model_vals = np.interp(data['time'], t_boot, sol[:, var_idx])
-                                    
-                                    if st.session_state.fit_results['fitting_options']['use_relative_error']:
-                                        error = ((model_vals - data['value']) / (np.abs(data['value']) + 1e-10))**2
-                                    else:
-                                        error = (model_vals - data['value'])**2
-                                    
-                                    total_ssr += np.sum(error)
-                                
-                                return total_ssr
-                            except:
-                                return 1e12
-                        
-                        # Run bootstrap with real-time logging
-                        bootstrap_params = []
-                        progress_bar = st.progress(0)
-                        
-                        # Create placeholder for real-time logs in the right column
-                        with col2:
-                            st.subheader("🔄 Live Bootstrap Progress")
-                            status_placeholder = st.empty()
-                            logs_placeholder = st.empty()
-                            metrics_placeholder = st.empty()
-                        
-                        for i in range(n_bootstrap_samples):
-                            # Create bootstrap datasets
-                            bootstrap_datasets = {}
-                            
-                            for dataset_name, data in st.session_state.datasets.items():
-                                if bootstrap_method == "Residual Resampling":
-                                    # Resample residuals
-                                    boot_residuals = np.random.choice(all_residuals[dataset_name], 
-                                                                     size=len(all_residuals[dataset_name]), 
-                                                                     replace=True)
-                                    var_idx = st.session_state.dataset_mapping[dataset_name]
-                                    model_vals = np.interp(data['time'], t_fine, solution[:, var_idx])
-                                    boot_values = model_vals + boot_residuals
-                                else:
-                                    # Parametric bootstrap (add noise based on residual variance)
-                                    noise_std = np.std(all_residuals[dataset_name])
-                                    boot_values = data['value'] + np.random.normal(0, noise_std, len(data))
-                                
-                                bootstrap_datasets[dataset_name] = pd.DataFrame({
-                                    'time': data['time'],
-                                    'value': boot_values
-                                })
-                            
-                            # Optimize with bootstrap data
-                            opt_bounds = [(bounds[param][0], bounds[param][1]) for param in st.session_state.param_names]
-                            
-                            result = minimize(bootstrap_objective, best_params, 
-                                            args=(bootstrap_datasets,), 
-                                            method='Nelder-Mead', bounds=opt_bounds)
-                            
-                            bootstrap_params.append(result.x)
-                            progress_bar.progress((i + 1) / n_bootstrap_samples)
-                            
-                            # Log at specified frequency
-                            if (i + 1) % log_frequency == 0 or i == 0:
-                                current_params = dict(zip(st.session_state.param_names, result.x))
-                                log_entry = {
-                                    'iteration': i + 1,
-                                    'cost': result.fun,
-                                    'params': current_params,
-                                    'timestamp': datetime.now().strftime('%H:%M:%S')
-                                }
-                                st.session_state.bootstrap_logs.append(log_entry)
-                                
-                                # Update real-time displays
-                                with status_placeholder.container():
-                                    st.markdown(f"**Current Status:** Processing sample {i + 1}/{n_bootstrap_samples}")
-                                    st.markdown(f"**Latest Cost:** {result.fun:.4e}")
-                                    st.markdown(f"**Time:** {log_entry['timestamp']}")
-                                
-                                # Display recent logs (limited by max_logs_display)
-                                with logs_placeholder.container():
-                                    st.markdown("**📋 Recent Bootstrap Logs:**")
-                                    recent_logs = st.session_state.bootstrap_logs[-max_logs_display:]
-                                    
-                                    for log in reversed(recent_logs):
-                                        with st.expander(f"Sample #{log['iteration']} - {log['timestamp']} (Cost: {log['cost']:.4e})", expanded=False):
-                                            st.write("**Parameters:**")
-                                            for param, value in log['params'].items():
-                                                st.write(f"- {param}: {value:.6e}")
-                                
-                                # Update metrics
-                                if len(st.session_state.bootstrap_logs) > 0:
-                                    with metrics_placeholder.container():
-                                        st.markdown("**📊 Running Statistics:**")
-                                        costs = [log['cost'] for log in st.session_state.bootstrap_logs]
-                                        col_a, col_b, col_c = st.columns(3)
-                                        col_a.metric("Samples", len(st.session_state.bootstrap_logs))
-                                        col_b.metric("Best Cost", f"{min(costs):.4e}")
-                                        col_c.metric("Mean Cost", f"{np.mean(costs):.4e}")
-                        
-                        progress_bar.empty()
-                        
-                        # Calculate statistics - FIX THE CONFIDENCE INTERVAL BUG
-                        bootstrap_params = np.array(bootstrap_params)
-                        
-                        alpha = (100 - confidence_level) / 100
-                        ci_lower = (alpha / 2) * 100
-                        ci_upper = (1 - alpha / 2) * 100  # Fixed: should be (1 - alpha/2) * 100
-                        
-                        bootstrap_stats = {}
-                        for i, param in enumerate(st.session_state.param_names):
-                            param_values = bootstrap_params[:, i]
-                            bootstrap_stats[param] = {
-                                'mean': np.mean(param_values),
-                                'std': np.std(param_values),
-                                'median': np.median(param_values),
-                                'ci_lower': np.percentile(param_values, ci_lower),
-                                'ci_upper': np.percentile(param_values, ci_upper),
-                                'values': param_values
-                            }
-                        
-                        st.session_state.bootstrap_results = {
-                            'params': bootstrap_params,
-                            'stats': bootstrap_stats,
-                            'n_samples': n_bootstrap_samples,
-                            'confidence_level': confidence_level,
-                            'method': bootstrap_method
-                        }
-                        
-                        # Clear the live progress display and show completion
-                        with col2:
-                            st.success("✅ mODEl bootstrap analysis completed!")
-                        
-                    except Exception as e:
-                        st.error(f"Error during mODEl bootstrap analysis: {str(e)}")
-                        st.exception(e)
+            # Update session state with current selections
+            st.session_state.bootstrap_settings['n_samples'] = n_bootstrap_samples
+            st.session_state.bootstrap_settings['method'] = bootstrap_method
+            st.session_state.bootstrap_settings['confidence_level'] = confidence_level
         
         with col2:
             if not hasattr(st.session_state, 'bootstrap_logs') or not st.session_state.bootstrap_logs:
@@ -2062,13 +2136,13 @@ def ode_system(y, t, {', '.join(param_names)}):
                     )
 
         # Parameter distribution plots
-        if st.session_state.bootstrap_results and show_distributions:
+        if st.session_state.bootstrap_results and st.session_state.visualization_settings['show_distributions']:
             st.subheader("Parameter Distribution Analysis")
             
             n_params = len(st.session_state.param_names)
             confidence_level = st.session_state.bootstrap_results['confidence_level']
             
-            if plot_style == "plotly":
+            if st.session_state.visualization_settings['plot_style'] == "plotly":
                 # Use Plotly for parameter distribution plots
                 cols = 3
                 rows = (n_params + cols - 1) // cols
