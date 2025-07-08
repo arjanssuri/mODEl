@@ -102,7 +102,138 @@ st.markdown("""
         background-color: #3399FF !important;
         color: white !important;
     }
+    /* Sidebar button styling */
+    .sidebar-fit-button {
+        background-color: #28a745 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        font-size: 14px !important;
+        padding: 10px 15px !important;
+        margin: 10px 0 !important;
+        width: 100% !important;
+    }
+    .sidebar-fit-button:hover {
+        background-color: #218838 !important;
+        color: white !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .keyboard-shortcut-info {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        padding: 8px;
+        margin: 5px 0;
+        font-size: 12px;
+        color: #6c757d;
+    }
 </style>
+
+<script>
+// Keyboard shortcut for model fitting (Cmd + . or Ctrl + .)
+document.addEventListener('keydown', function(event) {
+    // Check for Cmd + . (Mac) or Ctrl + . (Windows/Linux)
+    if ((event.metaKey || event.ctrlKey) && event.key === '.') {
+        event.preventDefault();
+        
+        // Find the sidebar model fitting button by its unique key
+        const buttons = document.querySelectorAll('button');
+        let sidebarButton = null;
+        
+        buttons.forEach(button => {
+            if (button.textContent.includes('Quick Model Fitting') || 
+                button.getAttribute('title') === 'Run model fitting with current settings (Shortcut: Cmd/Ctrl + .)') {
+                sidebarButton = button;
+            }
+        });
+        
+        if (sidebarButton) {
+            sidebarButton.click();
+            
+            // Show visual feedback
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background-color: #28a745;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+                z-index: 10000;
+                font-weight: bold;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            `;
+            notification.textContent = '🚀 Model fitting triggered via keyboard shortcut!';
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 3000);
+        } else {
+            // Show error notification if button not found
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background-color: #dc3545;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+                z-index: 10000;
+                font-weight: bold;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            `;
+            notification.textContent = '⚠️ Quick fitting button not found. Please use the sidebar button.';
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 3000);
+        }
+        
+        return false;
+    }
+});
+
+// Add keyboard shortcut hint to page
+document.addEventListener('DOMContentLoaded', function() {
+    // Add global styles for keyboard shortcut hints
+    const style = document.createElement('style');
+    style.textContent = `
+        .shortcut-tooltip {
+            position: relative;
+        }
+        .shortcut-tooltip:hover::after {
+            content: "Keyboard shortcut: Cmd + . (Mac) or Ctrl + . (Windows/Linux)";
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+        }
+        
+        kbd {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: 11px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+    `;
+    document.head.appendChild(style);
+});
+</script>
 """, unsafe_allow_html=True)
 
 # Title and description
@@ -171,6 +302,173 @@ if 'visualization_settings' not in st.session_state:
         'show_phase_portrait': False,
         'show_distributions': False
     }
+# Trigger for model fitting from sidebar/keyboard
+if 'trigger_model_fitting' not in st.session_state:
+    st.session_state.trigger_model_fitting = False
+
+# Reusable model fitting function
+def run_model_fitting():
+    """Run model fitting with current settings - callable from anywhere"""
+    
+    # Validation checks
+    if not st.session_state.param_names:
+        st.error("❌ Please define your ODE system and parameters first!")
+        return False
+    
+    if not st.session_state.datasets:
+        st.error("❌ Please upload datasets first!")
+        return False
+    
+    if not st.session_state.initial_conditions:
+        st.error("❌ Please set initial conditions first!")
+        return False
+    
+    if not st.session_state.dataset_mapping:
+        st.error("❌ Please map your datasets to state variables first!")
+        return False
+    
+    # Get current bounds and initial guesses
+    bounds = {}
+    initial_guesses = {}
+    
+    # Use parsed bounds if available, otherwise create default bounds
+    if hasattr(st.session_state, 'parsed_bounds') and st.session_state.parsed_bounds:
+        bounds = st.session_state.parsed_bounds
+        initial_guesses = st.session_state.parsed_initial_guesses
+    else:
+        # Create default bounds around reasonable values
+        for param in st.session_state.param_names:
+            bounds[param] = (1e-6, 10.0)
+            initial_guesses[param] = 1.0
+    
+    # Default dataset weights
+    dataset_weights = {name: 1.0 for name in st.session_state.datasets.keys()}
+    
+    try:
+        with st.spinner("🚀 Running mODEl model fitting..."):
+            # Create ODE function
+            def create_ode_func(param_names, ode_code):
+                lines = ode_code.strip().split('\n')
+                indented_lines = []
+                for line in lines:
+                    if line.strip():
+                        indented_lines.append('    ' + line.strip())
+                    else:
+                        indented_lines.append('')
+                
+                indented_code = '\n'.join(indented_lines)
+                
+                func_code = f"""
+def ode_system(y, t, {', '.join(param_names)}):
+{indented_code}
+"""
+                exec(func_code, globals())
+                return globals()['ode_system']
+            
+            ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
+            
+            # Test ODE function
+            test_params = [initial_guesses[param] for param in st.session_state.param_names]
+            test_result = ode_func(st.session_state.initial_conditions, 0, *test_params)
+            
+            if len(test_result) != len(st.session_state.initial_conditions):
+                st.error(f"❌ ODE system mismatch: Your ODE returns {len(test_result)} derivatives but you have {len(st.session_state.initial_conditions)} initial conditions.")
+                return False
+            
+            # Prepare all datasets
+            all_times = []
+            all_data = []
+            for dataset_name, data in st.session_state.datasets.items():
+                all_times.extend(data['time'].values)
+                all_data.append(data)
+            
+            # Get unique sorted time points
+            unique_times = sorted(set(all_times))
+            t_data = np.array(unique_times)
+            
+            # Multi-objective optimization function
+            def objective(params):
+                try:
+                    # Solve ODE
+                    sol = odeint(ode_func, st.session_state.initial_conditions, t_data, 
+                               args=tuple(params))
+                    
+                    total_ssr = 0
+                    for dataset_name, data in st.session_state.datasets.items():
+                        var_idx = st.session_state.dataset_mapping[dataset_name]
+                        
+                        # Interpolate model solution to data time points
+                        model_vals = np.interp(data['time'], t_data, sol[:, var_idx])
+                        
+                        # Calculate error
+                        if st.session_state.optimization_settings['use_relative_error']:
+                            error = ((model_vals - data['value']) / (np.abs(data['value']) + 1e-10))**2
+                        else:
+                            error = (model_vals - data['value'])**2
+                        
+                        # Weight by dataset
+                        ssr = np.sum(error) * dataset_weights[dataset_name]
+                        total_ssr += ssr
+                    
+                    return total_ssr
+                except:
+                    return 1e12
+            
+            # Setup optimization
+            opt_bounds = [bounds[param] for param in st.session_state.param_names]
+            x0 = [initial_guesses[param] for param in st.session_state.param_names]
+            
+            # Run optimization
+            if st.session_state.optimization_settings['multi_start']:
+                best_result = None
+                best_cost = np.inf
+                
+                for i in range(st.session_state.optimization_settings['n_starts']):
+                    # Random initial point
+                    x0_random = []
+                    for (low, high) in opt_bounds:
+                        if np.isfinite(low) and np.isfinite(high):
+                            x0_random.append(np.random.uniform(low, high))
+                        else:
+                            x0_random.append(np.random.lognormal(0, 1))
+                    
+                    result = minimize(objective, x0_random, method=st.session_state.optimization_settings['method'], 
+                                    bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
+                    
+                    if result.fun < best_cost:
+                        best_result = result
+                        best_cost = result.fun
+                
+                result = best_result
+            else:
+                result = minimize(objective, x0, method=st.session_state.optimization_settings['method'], 
+                                bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
+            
+            # Store results
+            st.session_state.fit_results = {
+                'params': dict(zip(st.session_state.param_names, result.x)),
+                'cost': result.fun,
+                'success': result.success,
+                'message': result.message,
+                'result_obj': result,
+                'dataset_weights': dataset_weights,
+                'fitting_options': {
+                    'use_relative_error': st.session_state.optimization_settings['use_relative_error'],
+                    'use_log_transform': False,
+                    'normalize_by_initial': False
+                }
+            }
+            
+            # Success message with parameter summary
+            param_summary = ", ".join([f"{param}={value:.3e}" for param, value in st.session_state.fit_results['params'].items()])
+            st.success(f"✅ mODEl fitting completed! Cost: {result.fun:.3e}")
+            st.info(f"📊 **Fitted Parameters:** {param_summary}")
+            
+            return True
+    
+    except Exception as e:
+        st.error(f"❌ Model fitting error: {str(e)}")
+        return False
 
 # Function to check completion status
 def get_completion_status():
@@ -319,6 +617,58 @@ with st.sidebar:
     st.subheader("Overall Progress")
     st.progress(progress_percentage / 100)
     st.markdown(f"**{completed_steps}/{total_steps} steps completed ({progress_percentage:.0f}%)**")
+    
+    # Quick Model Fitting from Sidebar
+    st.markdown("---")
+    st.subheader("🚀 Quick Actions")
+    
+    # Show keyboard shortcut info
+    st.markdown("""
+    <div class="keyboard-shortcut-info">
+    💡 <strong>Tip:</strong> Press <kbd>Cmd + .</kbd> (Mac) or <kbd>Ctrl + .</kbd> (Windows/Linux) to quickly run model fitting from anywhere!
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Quick fit button with custom styling and tooltip
+    if st.button("🎯 Quick Model Fitting", 
+                key="sidebar_model_fitting",
+                help="Run model fitting with current settings (Shortcut: Cmd/Ctrl + .)",
+                type="primary"):
+        st.session_state.trigger_model_fitting = True
+    
+    # Show current readiness status
+    ready_for_fitting = (
+        len(st.session_state.datasets) > 0 and 
+        bool(st.session_state.ode_system and st.session_state.param_names) and
+        len(st.session_state.initial_conditions) > 0 and
+        len(st.session_state.dataset_mapping) > 0
+    )
+    
+    if ready_for_fitting:
+        st.success("✅ Ready for model fitting!")
+        if st.session_state.param_names:
+            st.info(f"📊 **Parameters to fit:** {', '.join(st.session_state.param_names)}")
+        if st.session_state.datasets:
+            st.info(f"📁 **Datasets:** {len(st.session_state.datasets)} loaded")
+    else:
+        missing_items = []
+        if len(st.session_state.datasets) == 0:
+            missing_items.append("Upload datasets")
+        if not (st.session_state.ode_system and st.session_state.param_names):
+            missing_items.append("Define ODE system")
+        if len(st.session_state.initial_conditions) == 0:
+            missing_items.append("Set initial conditions")
+        if len(st.session_state.dataset_mapping) == 0:
+            missing_items.append("Map datasets to variables")
+        
+        st.warning("⚠️ **Setup needed:**")
+        for item in missing_items:
+            st.write(f"• {item}")
+
+# Check and handle model fitting trigger from sidebar or keyboard shortcut
+if st.session_state.trigger_model_fitting:
+    st.session_state.trigger_model_fitting = False  # Reset trigger
+    run_model_fitting()
 
 # Tab 1: Enhanced Data Upload with Batch Processing
 with tab1:
@@ -1596,183 +1946,37 @@ initial_guess = {
             
             # Run fitting button
             if st.button("🚀 Run Advanced Model Fitting", type="primary"):
-                # Validation before fitting
-                if not st.session_state.initial_conditions:
-                    st.error("Please set initial conditions first!")
-                elif not st.session_state.dataset_mapping:
-                    st.error("Please map your datasets to state variables first!")
-                else:
-                    # Test ODE function compatibility
-                    try:
-                        def create_ode_func(param_names, ode_code):
-                            # Properly indent the user's ODE code
-                            lines = ode_code.strip().split('\n')
-                            indented_lines = []
-                            for line in lines:
-                                if line.strip():  # Only indent non-empty lines
-                                    indented_lines.append('    ' + line.strip())
-                                else:
-                                    indented_lines.append('')
-                            
-                            indented_code = '\n'.join(indented_lines)
-                            
-                            func_code = f"""
-def ode_system(y, t, {', '.join(param_names)}):
-{indented_code}
-"""
-                            exec(func_code, globals())
-                            return globals()['ode_system']
-                        
-                        # Test the ODE function with initial conditions
-                        test_ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
-                        test_params = [initial_guesses[param] for param in st.session_state.param_names]
-                        
-                        # Try to evaluate the ODE at t=0
-                        test_result = test_ode_func(st.session_state.initial_conditions, 0, *test_params)
-                        
-                        # Validate that the result has the correct shape
-                        if len(test_result) != len(st.session_state.initial_conditions):
-                            st.error(f"❌ ODE system mismatch: Your ODE returns {len(test_result)} derivatives but you have {len(st.session_state.initial_conditions)} initial conditions.")
-                            st.info("💡 Make sure the number of derivatives returned matches the number of state variables!")
-                        else:
-                            st.success(f"✅ ODE system validated: {len(test_result)} state variables")
-                            
-                    except IndexError as e:
-                        st.error(f"❌ ODE Definition Error: {str(e)}")
-                        st.error("This usually means your ODE code is trying to access more components of 'y' than you have initial conditions.")
-                        st.info(f"💡 You have {len(st.session_state.initial_conditions)} initial conditions, but your ODE code tries to access y[{str(e).split('index ')[1].split(' is')[0]}]")
-                        st.info("Fix: Either increase the number of state variables or modify your ODE code.")
-                    except Exception as e:
-                        st.error(f"❌ ODE Validation Error: {str(e)}")
-                        st.info("Please check your ODE system definition and parameter names.")
+                # Store Tab 3 specific settings temporarily
+                tab3_dataset_weights = dataset_weights.copy()
+                tab3_use_log_transform = use_log_transform
+                tab3_normalize_by_initial = normalize_by_initial
                 
-                if 'test_result' in locals():  # Only proceed if validation passed
-                    with st.spinner("Running optimization..."):
-                        try:
-                            # Create ODE function
-                            def create_ode_func(param_names, ode_code):
-                                # Properly indent the user's ODE code
-                                lines = ode_code.strip().split('\n')
-                                indented_lines = []
-                                for line in lines:
-                                    if line.strip():  # Only indent non-empty lines
-                                        indented_lines.append('    ' + line.strip())
-                                    else:
-                                        indented_lines.append('')
-                                
-                                indented_code = '\n'.join(indented_lines)
-                                
-                                func_code = f"""
-def ode_system(y, t, {', '.join(param_names)}):
-{indented_code}
-"""
-                                exec(func_code, globals())
-                                return globals()['ode_system']
-                            
-                            ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
-                            
-                            # Prepare all datasets
-                            all_times = []
-                            all_data = []
-                            for dataset_name, data in st.session_state.datasets.items():
-                                all_times.extend(data['time'].values)
-                                all_data.append(data)
-                            
-                            # Get unique sorted time points
-                            unique_times = sorted(set(all_times))
-                            t_data = np.array(unique_times)
-                            
-                            # Multi-objective optimization function
-                            def objective(params):
-                                try:
-                                    # Solve ODE
-                                    sol = odeint(ode_func, st.session_state.initial_conditions, t_data, 
-                                               args=tuple(params))
-                                    
-                                    total_ssr = 0
-                                    for dataset_name, data in st.session_state.datasets.items():
-                                        var_idx = st.session_state.dataset_mapping[dataset_name]
-                                        
-                                        # Interpolate model solution to data time points
-                                        model_vals = np.interp(data['time'], t_data, sol[:, var_idx])
-                                        
-                                        # Apply transformations
-                                        if use_log_transform and np.all(data['value'] > 0):
-                                            model_vals = np.log(np.maximum(model_vals, 1e-10))
-                                            data_vals = np.log(data['value'])
-                                        else:
-                                            data_vals = data['value']
-                                        
-                                        # Calculate error
-                                        if st.session_state.optimization_settings['use_relative_error']:
-                                            error = ((model_vals - data_vals) / (np.abs(data_vals) + 1e-10))**2
-                                        else:
-                                            error = (model_vals - data_vals)**2
-                                        
-                                        # Weight by dataset
-                                        ssr = np.sum(error) * dataset_weights[dataset_name]
-                                        total_ssr += ssr
-                                    
-                                    return total_ssr
-                                except:
-                                    return 1e12
-                            
-                            # Setup optimization
-                            opt_bounds = [bounds[param] for param in st.session_state.param_names]
-                            x0 = [initial_guesses[param] for param in st.session_state.param_names]
-                            
-                            # Run optimization
-                            if st.session_state.optimization_settings['multi_start']:
-                                best_result = None
-                                best_cost = np.inf
-                                
-                                progress_bar = st.progress(0)
-                                for i in range(st.session_state.optimization_settings['n_starts']):
-                                    # Random initial point
-                                    x0_random = []
-                                    for (low, high) in opt_bounds:
-                                        if np.isfinite(low) and np.isfinite(high):
-                                            x0_random.append(np.random.uniform(low, high))
-                                        else:
-                                            x0_random.append(np.random.lognormal(0, 1))
-                                    
-                                    result = minimize(objective, x0_random, method=st.session_state.optimization_settings['method'], 
-                                                    bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
-                                    
-                                    if result.fun < best_cost:
-                                        best_result = result
-                                        best_cost = result.fun
-                                    
-                                    progress_bar.progress((i + 1) / st.session_state.optimization_settings['n_starts'])
-                                
-                                result = best_result
-                                progress_bar.empty()
-                            else:
-                                result = minimize(objective, x0, method=st.session_state.optimization_settings['method'], 
-                                                bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
-                            
-                            # Store results
-                            st.session_state.fit_results = {
-                                'params': dict(zip(st.session_state.param_names, result.x)),
-                                'cost': result.fun,
-                                'success': result.success,
-                                'message': result.message,
-                                'result_obj': result,
-                                'dataset_weights': dataset_weights,
-                                'fitting_options': {
-                                    'use_relative_error': st.session_state.optimization_settings['use_relative_error'],
-                                    'use_log_transform': use_log_transform,
-                                    'normalize_by_initial': normalize_by_initial
-                                }
-                            }
-                            
-                            st.success("✅ mODEl model fitting completed!")
-                            
-                        except Exception as e:
-                            st.error(f"Error during mODEl fitting: {str(e)}")
-                            st.exception(e)
-    else:
-        st.warning("Please upload datasets and define your ODE system first to use mODEl's fitting capabilities.")
+                # Create bounds dictionary for the reusable function
+                if bounds:
+                    st.session_state.parsed_bounds = bounds
+                    st.session_state.parsed_initial_guesses = initial_guesses
+                
+                # Run the model fitting using reusable function
+                success = run_model_fitting()
+                
+                # Update results with Tab 3 specific settings if successful
+                if success and st.session_state.fit_results:
+                    st.session_state.fit_results['dataset_weights'] = tab3_dataset_weights
+                    st.session_state.fit_results['fitting_options'].update({
+                        'use_log_transform': tab3_use_log_transform,
+                        'normalize_by_initial': tab3_normalize_by_initial
+                    })
+                    
+                    # Show additional Tab 3 specific success information
+                    if tab3_use_log_transform:
+                        st.info("📊 **Log transformation** was applied to positive data")
+                    if tab3_normalize_by_initial:
+                        st.info("📊 **Normalization** by initial values was applied")
+                    if any(w != 1.0 for w in tab3_dataset_weights.values()):
+                        weights_info = ", ".join([f"{name}: {weight}" for name, weight in tab3_dataset_weights.items() if weight != 1.0])
+                        st.info(f"⚖️ **Custom dataset weights:** {weights_info}")
+            else:
+                st.warning("Please upload datasets and define your ODE system first to use mODEl's fitting capabilities.")
 
 # Tab 4: Enhanced Results
 with tab4:
