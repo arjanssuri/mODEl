@@ -54,11 +54,12 @@ st.markdown("""
         margin: 10px 0;
     }
     .bootstrap-warning {
-        background-color: #fff3cd;
-        border: 1px solid #ffeaa7;
+        background-color: #d1ecf1;
+        border: 1px solid #b8daff;
         border-radius: 5px;
         padding: 10px;
         margin: 10px 0;
+        color: #0c5460;
     }
     .bounds-code-area {
         background-color: #f8f9fa;
@@ -2070,6 +2071,212 @@ with tab5:
             st.session_state.bootstrap_settings['n_samples'] = n_bootstrap_samples
             st.session_state.bootstrap_settings['method'] = bootstrap_method
             st.session_state.bootstrap_settings['confidence_level'] = confidence_level
+            
+            # Run Bootstrap Analysis Button
+            if st.button("🎯 Run Bootstrap Analysis", type="primary"):
+                with st.spinner("Running bootstrap analysis..."):
+                    try:
+                        # Create ODE function for bootstrap
+                        def create_ode_func(param_names, ode_code):
+                            # Properly indent the user's ODE code
+                            lines = ode_code.strip().split('\n')
+                            indented_lines = []
+                            for line in lines:
+                                if line.strip():  # Only indent non-empty lines
+                                    indented_lines.append('    ' + line.strip())
+                                else:
+                                    indented_lines.append('')
+                            
+                            indented_code = '\n'.join(indented_lines)
+                            
+                            func_code = f"""
+def ode_system(y, t, {', '.join(param_names)}):
+{indented_code}
+"""
+                            exec(func_code, globals())
+                            return globals()['ode_system']
+                        
+                        ode_func = create_ode_func(st.session_state.param_names, st.session_state.ode_system)
+                        
+                        # Get fitted parameters
+                        fitted_params = [st.session_state.fit_results['params'][p] for p in st.session_state.param_names]
+                        
+                        # Prepare datasets for bootstrap
+                        all_times = []
+                        for data in st.session_state.datasets.values():
+                            all_times.extend(data['time'].values)
+                        unique_times = sorted(set(all_times))
+                        t_data = np.array(unique_times)
+                        
+                        # Calculate residuals for the original fit
+                        sol_orig = odeint(ode_func, st.session_state.initial_conditions, t_data, 
+                                        args=tuple(fitted_params))
+                        
+                        original_residuals = {}
+                        for dataset_name, data in st.session_state.datasets.items():
+                            var_idx = st.session_state.dataset_mapping[dataset_name]
+                            model_vals = np.interp(data['time'], t_data, sol_orig[:, var_idx])
+                            original_residuals[dataset_name] = data['value'] - model_vals
+                        
+                        # Bootstrap analysis
+                        bootstrap_params = []
+                        
+                        # Initialize progress tracking
+                        if 'bootstrap_logs' not in st.session_state:
+                            st.session_state.bootstrap_logs = []
+                        st.session_state.bootstrap_logs = []  # Clear previous logs
+                        
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        for i in range(n_bootstrap_samples):
+                            try:
+                                # Create bootstrap datasets
+                                bootstrap_datasets = {}
+                                
+                                if bootstrap_method == "Residual Resampling":
+                                    # Resample residuals
+                                    for dataset_name, data in st.session_state.datasets.items():
+                                        var_idx = st.session_state.dataset_mapping[dataset_name]
+                                        model_vals = np.interp(data['time'], t_data, sol_orig[:, var_idx])
+                                        
+                                        # Resample residuals
+                                        resampled_residuals = np.random.choice(
+                                            original_residuals[dataset_name], 
+                                            size=len(original_residuals[dataset_name]), 
+                                            replace=True
+                                        )
+                                        
+                                        # Create new bootstrap data
+                                        bootstrap_values = model_vals + resampled_residuals
+                                        bootstrap_datasets[dataset_name] = pd.DataFrame({
+                                            'time': data['time'],
+                                            'value': bootstrap_values
+                                        })
+                                
+                                else:  # Parametric Bootstrap
+                                    # Add noise based on residual variance
+                                    for dataset_name, data in st.session_state.datasets.items():
+                                        var_idx = st.session_state.dataset_mapping[dataset_name]
+                                        model_vals = np.interp(data['time'], t_data, sol_orig[:, var_idx])
+                                        
+                                        # Calculate residual standard deviation
+                                        residual_std = np.std(original_residuals[dataset_name])
+                                        
+                                        # Add random noise
+                                        noise = np.random.normal(0, residual_std, len(model_vals))
+                                        bootstrap_values = model_vals + noise
+                                        
+                                        bootstrap_datasets[dataset_name] = pd.DataFrame({
+                                            'time': data['time'],
+                                            'value': bootstrap_values
+                                        })
+                                
+                                # Fit to bootstrap data
+                                def bootstrap_objective(params):
+                                    try:
+                                        sol = odeint(ode_func, st.session_state.initial_conditions, t_data, 
+                                                   args=tuple(params))
+                                        
+                                        total_ssr = 0
+                                        for dataset_name, data in bootstrap_datasets.items():
+                                            var_idx = st.session_state.dataset_mapping[dataset_name]
+                                            model_vals = np.interp(data['time'], t_data, sol[:, var_idx])
+                                            ssr = np.sum((model_vals - data['value'])**2)
+                                            total_ssr += ssr
+                                        
+                                        return total_ssr
+                                    except:
+                                        return 1e12
+                                
+                                # Use original fitted parameters as starting point
+                                bounds = []
+                                for param in st.session_state.param_names:
+                                    if hasattr(st.session_state, 'parsed_bounds') and param in st.session_state.parsed_bounds:
+                                        bounds.append(st.session_state.parsed_bounds[param])
+                                    else:
+                                        # Default bounds around fitted value
+                                        fitted_val = st.session_state.fit_results['params'][param]
+                                        bounds.append((fitted_val * 0.01, fitted_val * 100))
+                                
+                                # Optimize bootstrap sample
+                                result = minimize(bootstrap_objective, fitted_params, 
+                                                method=st.session_state.optimization_settings['method'], 
+                                                bounds=bounds)
+                                
+                                if result.success:
+                                    bootstrap_params.append(result.x)
+                                    
+                                    # Log progress every 10 samples
+                                    if (i + 1) % 10 == 0 or i == 0:
+                                        param_summary = {}
+                                        for j, param in enumerate(st.session_state.param_names):
+                                            values = [bp[j] for bp in bootstrap_params]
+                                            param_summary[param] = {
+                                                'mean': np.mean(values),
+                                                'std': np.std(values),
+                                                'current': result.x[j]
+                                            }
+                                        
+                                        log_entry = f"Sample {i+1}/{n_bootstrap_samples}: "
+                                        log_entry += ", ".join([f"{p}={param_summary[p]['current']:.3e}" 
+                                                              for p in st.session_state.param_names[:3]])
+                                        if len(st.session_state.param_names) > 3:
+                                            log_entry += "..."
+                                        
+                                        st.session_state.bootstrap_logs.append(log_entry)
+                            
+                            except Exception as e:
+                                # Skip failed samples
+                                pass
+                            
+                            # Update progress
+                            progress = (i + 1) / n_bootstrap_samples
+                            progress_bar.progress(progress)
+                            status_text.text(f"Bootstrap sample {i+1}/{n_bootstrap_samples} "
+                                           f"({len(bootstrap_params)} successful)")
+                        
+                        # Clear progress indicators
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        if len(bootstrap_params) > 0:
+                            # Calculate statistics
+                            bootstrap_stats = {}
+                            for i, param in enumerate(st.session_state.param_names):
+                                values = [bp[i] for bp in bootstrap_params]
+                                
+                                # Calculate confidence intervals
+                                alpha = (100 - confidence_level) / 100
+                                ci_lower = np.percentile(values, 100 * alpha / 2)
+                                ci_upper = np.percentile(values, 100 * (1 - alpha / 2))
+                                
+                                bootstrap_stats[param] = {
+                                    'values': values,
+                                    'mean': np.mean(values),
+                                    'std': np.std(values),
+                                    'ci_lower': ci_lower,
+                                    'ci_upper': ci_upper
+                                }
+                            
+                            # Store results
+                            st.session_state.bootstrap_results = {
+                                'n_samples': n_bootstrap_samples,
+                                'method': bootstrap_method,
+                                'confidence_level': confidence_level,
+                                'successful_samples': len(bootstrap_params),
+                                'stats': bootstrap_stats
+                            }
+                            
+                            st.success(f"✅ Bootstrap analysis completed! "
+                                     f"({len(bootstrap_params)}/{n_bootstrap_samples} successful samples)")
+                        
+                        else:
+                            st.error("❌ Bootstrap analysis failed - no successful samples")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Bootstrap analysis error: {str(e)}")
+                        st.exception(e)
         
         with col2:
             if not hasattr(st.session_state, 'bootstrap_logs') or not st.session_state.bootstrap_logs:
