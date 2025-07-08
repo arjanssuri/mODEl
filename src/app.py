@@ -617,7 +617,7 @@ with st.sidebar:
     st.subheader("Overall Progress")
     st.progress(progress_percentage / 100)
     st.markdown(f"**{completed_steps}/{total_steps} steps completed ({progress_percentage:.0f}%)**")
-    
+
     # Quick Model Fitting from Sidebar
     st.markdown("---")
     st.subheader("🚀 Quick Actions")
@@ -683,117 +683,117 @@ with tab1:
     
     if upload_method == "Individual Files":
         # Original multi-dataset upload
-        st.subheader("Multi-Dataset Upload")
-        st.info("Upload multiple datasets for different variables in your ODE system. Each dataset should have 'time' and 'value' columns.")
+    st.subheader("Multi-Dataset Upload")
+    st.info("Upload multiple datasets for different variables in your ODE system. Each dataset should have 'time' and 'value' columns.")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Dynamic dataset upload
+        uploaded_file = st.file_uploader(
+            "Choose a file (txt or csv)",
+            type=['txt', 'csv'],
+            help="Upload experimental data with 'time' and 'value' columns for analysis in mODEl"
+        )
         
-        col1, col2 = st.columns([2, 1])
+        # Auto-detect dataset name from filename
+        if uploaded_file is not None:
+            # Extract filename without extension for default dataset name
+            default_name = uploaded_file.name.rsplit('.', 1)[0]
+            dataset_name = st.text_input("Dataset Name", value=default_name, placeholder="e.g., viral_load, interferon")
+        else:
+            dataset_name = st.text_input("Dataset Name", placeholder="e.g., viral_load, interferon")
         
-        with col1:
-            # Dynamic dataset upload
-            uploaded_file = st.file_uploader(
-                "Choose a file (txt or csv)",
-                type=['txt', 'csv'],
-                help="Upload experimental data with 'time' and 'value' columns for analysis in mODEl"
-            )
-            
-            # Auto-detect dataset name from filename
-            if uploaded_file is not None:
-                # Extract filename without extension for default dataset name
-                default_name = uploaded_file.name.rsplit('.', 1)[0]
-                dataset_name = st.text_input("Dataset Name", value=default_name, placeholder="e.g., viral_load, interferon")
-            else:
-                dataset_name = st.text_input("Dataset Name", placeholder="e.g., viral_load, interferon")
-            
-            if uploaded_file is not None and dataset_name:
-                try:
-                    # Read the file with better parsing
-                    if uploaded_file.name.endswith('.csv'):
-                        data = pd.read_csv(uploaded_file)
+        if uploaded_file is not None and dataset_name:
+            try:
+                # Read the file with better parsing
+                if uploaded_file.name.endswith('.csv'):
+                    data = pd.read_csv(uploaded_file)
+                else:
+                    # Try different delimiters for TXT files
+                    content = uploaded_file.read().decode('utf-8')
+                    uploaded_file.seek(0)  # Reset file pointer
+                    
+                    # Detect delimiter
+                    if '\t' in content:
+                        data = pd.read_csv(uploaded_file, delimiter='\t')
+                    elif ',' in content:
+                        data = pd.read_csv(uploaded_file, delimiter=',')
+                    elif ';' in content:
+                        data = pd.read_csv(uploaded_file, delimiter=';')
+                    elif ' ' in content:
+                        data = pd.read_csv(uploaded_file, delimiter=r'\s+', engine='python')
                     else:
-                        # Try different delimiters for TXT files
-                        content = uploaded_file.read().decode('utf-8')
-                        uploaded_file.seek(0)  # Reset file pointer
-                        
-                        # Detect delimiter
-                        if '\t' in content:
-                            data = pd.read_csv(uploaded_file, delimiter='\t')
-                        elif ',' in content:
-                            data = pd.read_csv(uploaded_file, delimiter=',')
-                        elif ';' in content:
-                            data = pd.read_csv(uploaded_file, delimiter=';')
-                        elif ' ' in content:
-                            data = pd.read_csv(uploaded_file, delimiter=r'\s+', engine='python')
-                        else:
-                            data = pd.read_csv(uploaded_file, delimiter='\t')
+                        data = pd.read_csv(uploaded_file, delimiter='\t')
+                
+                # Clean column names (remove extra whitespace)
+                data.columns = data.columns.str.strip()
+                
+                # Check for required columns (case insensitive)
+                col_names = [col.lower() for col in data.columns]
+                time_col = None
+                value_col = None
+                
+                # Find time column
+                for col in data.columns:
+                    if col.lower() in ['time', 't', 'times']:
+                        time_col = col
+                        break
+                
+                # Find value column
+                for col in data.columns:
+                    if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
+                        value_col = col
+                        break
+                
+                if time_col is None or value_col is None:
+                    st.error(f"Data must have 'time' and 'value' columns. Found columns: {', '.join(data.columns)}")
+                    st.info("Acceptable column names:\n- Time: 'time', 't', 'times'\n- Value: 'value', 'val', 'values', 'concentration', 'conc', 'amount'")
+                else:
+                    # Standardize column names
+                    if time_col != 'time':
+                        data = data.rename(columns={time_col: 'time'})
+                    if value_col != 'value':
+                        data = data.rename(columns={value_col: 'value'})
                     
-                    # Clean column names (remove extra whitespace)
-                    data.columns = data.columns.str.strip()
+                    # Validate data types
+                    data['time'] = pd.to_numeric(data['time'], errors='coerce')
+                    data['value'] = pd.to_numeric(data['value'], errors='coerce')
                     
-                    # Check for required columns (case insensitive)
-                    col_names = [col.lower() for col in data.columns]
-                    time_col = None
-                    value_col = None
+                    # Remove rows with NaN values
+                    data = data.dropna()
                     
-                    # Find time column
-                    for col in data.columns:
-                        if col.lower() in ['time', 't', 'times']:
-                            time_col = col
-                            break
-                    
-                    # Find value column
-                    for col in data.columns:
-                        if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
-                            value_col = col
-                            break
-                    
-                    if time_col is None or value_col is None:
-                        st.error(f"Data must have 'time' and 'value' columns. Found columns: {', '.join(data.columns)}")
-                        st.info("Acceptable column names:\n- Time: 'time', 't', 'times'\n- Value: 'value', 'val', 'values', 'concentration', 'conc', 'amount'")
+                    if len(data) == 0:
+                        st.error("No valid data rows found after cleaning")
                     else:
-                        # Standardize column names
-                        if time_col != 'time':
-                            data = data.rename(columns={time_col: 'time'})
-                        if value_col != 'value':
-                            data = data.rename(columns={value_col: 'value'})
+                        st.session_state.datasets[dataset_name] = data
+                        st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(data)} data points)")
                         
-                        # Validate data types
-                        data['time'] = pd.to_numeric(data['time'], errors='coerce')
-                        data['value'] = pd.to_numeric(data['value'], errors='coerce')
-                        
-                        # Remove rows with NaN values
-                        data = data.dropna()
-                        
-                        if len(data) == 0:
-                            st.error("No valid data rows found after cleaning")
-                        else:
-                            st.session_state.datasets[dataset_name] = data
-                            st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(data)} data points)")
-                            
-                            # Show column mapping info
-                            if time_col != 'time' or value_col != 'value':
-                                st.info(f"Column mapping: '{time_col}' → time, '{value_col}' → value")
-                        
-                except Exception as e:
-                    st.error(f"Error loading file: {str(e)}")
-                    st.info("Make sure your file has columns for time and values, separated by tabs, commas, or spaces.")
-            
-            # Remove dataset button
-            if st.session_state.datasets:
-                dataset_to_remove = st.selectbox("Remove Dataset", [""] + list(st.session_state.datasets.keys()))
-                if dataset_to_remove and st.button("Remove Selected Dataset"):
-                    del st.session_state.datasets[dataset_to_remove]
-                    st.rerun()
+                        # Show column mapping info
+                        if time_col != 'time' or value_col != 'value':
+                            st.info(f"Column mapping: '{time_col}' → time, '{value_col}' → value")
+                    
+            except Exception as e:
+                st.error(f"Error loading file: {str(e)}")
+                st.info("Make sure your file has columns for time and values, separated by tabs, commas, or spaces.")
         
-        with col2:
-            if st.session_state.datasets:
-                st.subheader("Loaded Datasets")
-                for name, data in st.session_state.datasets.items():
-                    st.info(f"""
-                    **{name}**
-                    - Rows: {len(data)}
-                    - Time range: {data['time'].min():.2f} - {data['time'].max():.2f}
-                    - Value range: {data['value'].min():.2f} - {data['value'].max():.2f}
-                    """)
+        # Remove dataset button
+        if st.session_state.datasets:
+            dataset_to_remove = st.selectbox("Remove Dataset", [""] + list(st.session_state.datasets.keys()))
+            if dataset_to_remove and st.button("Remove Selected Dataset"):
+                del st.session_state.datasets[dataset_to_remove]
+                st.rerun()
+    
+    with col2:
+        if st.session_state.datasets:
+            st.subheader("Loaded Datasets")
+            for name, data in st.session_state.datasets.items():
+                st.info(f"""
+                **{name}**
+                - Rows: {len(data)}
+                - Time range: {data['time'].min():.2f} - {data['time'].max():.2f}
+                - Value range: {data['value'].min():.2f} - {data['value'].max():.2f}
+                """)
     
     else:  # Batch Folder Upload
         st.subheader("📁 Batch Folder Upload")
@@ -844,7 +844,7 @@ with tab1:
                             prefix = base_name.split('_')[0]
                         elif '-' in base_name:
                             prefix = base_name.split('-')[0]
-                        else:
+            else:
                             prefix = base_name
                         
                         if prefix not in organized_jobs:
@@ -879,7 +879,7 @@ with tab1:
                                 try:
                                     if file.name.endswith('.csv'):
                                         data = pd.read_csv(file)
-                                    else:
+        else:
                                         # Try different delimiters for TXT files
                                         content = file.read().decode('utf-8')
                                         file.seek(0)  # Reset file pointer
@@ -893,7 +893,7 @@ with tab1:
                                             data = pd.read_csv(file, delimiter=';')
                                         elif ' ' in content:
                                             data = pd.read_csv(file, delimiter=r'\s+', engine='python')
-                                        else:
+            else:
                                             data = pd.read_csv(file, delimiter='\t')
                                     
                                     # Clean column names
@@ -995,8 +995,8 @@ with tab1:
             
             # Job selection and management
             col1, col2 = st.columns([2, 1])
-            
-            with col1:
+                
+                with col1:
                 # Job selector
                 job_names = list(st.session_state.batch_jobs.keys())
                 selected_job = st.selectbox(
@@ -1097,7 +1097,7 @@ with tab1:
                         job_data['status'] = 'configured' if st.session_state.ode_system else 'ready'
                         
                         st.success(f"✅ Saved current state with all advanced settings to job '{st.session_state.active_job}'")
-                else:
+        else:
                     st.warning("No active job selected")
             
             # Jobs summary table
@@ -1310,18 +1310,18 @@ with tab2:
                 
                 if ic_method == "Manual Input":
                     # Original manual input method with stable keys
-                    if n_vars <= 3:
-                        # Single row for 1-3 variables
-                        cols = st.columns(n_vars)
-                        for i in range(n_vars):
-                            with cols[i]:
-                                if var_names and i < len(var_names):
-                                    label = f"{var_names[i]}(0)"
-                                    help_text = f"Initial condition for {var_names[i]}"
-                                else:
-                                    label = f"y[{i}](0)"
-                                    help_text = f"Initial condition for y[{i}]"
-                                
+                if n_vars <= 3:
+                    # Single row for 1-3 variables
+                    cols = st.columns(n_vars)
+                    for i in range(n_vars):
+                        with cols[i]:
+                            if var_names and i < len(var_names):
+                                label = f"{var_names[i]}(0)"
+                                help_text = f"Initial condition for {var_names[i]}"
+                            else:
+                                label = f"y[{i}](0)"
+                                help_text = f"Initial condition for y[{i}]"
+                            
                                 # Use stable key and preserve existing values
                                 current_value = 0.0
                                 if i < len(st.session_state.initial_conditions):
@@ -1333,17 +1333,17 @@ with tab2:
                                     key=f"manual_ic_{i}_{job_key}", 
                                     help=help_text
                                 )
-                                initial_conditions.append(ic)
-                    else:
-                        # Multiple rows for >3 variables
-                        for i in range(n_vars):
-                            if var_names and i < len(var_names):
-                                label = f"{var_names[i]}(0)"
-                                help_text = f"Initial condition for {var_names[i]}"
-                            else:
-                                label = f"y[{i}](0)"
-                                help_text = f"Initial condition for y[{i}]"
-                            
+                            initial_conditions.append(ic)
+                else:
+                    # Multiple rows for >3 variables
+                    for i in range(n_vars):
+                        if var_names and i < len(var_names):
+                            label = f"{var_names[i]}(0)"
+                            help_text = f"Initial condition for {var_names[i]}"
+                        else:
+                            label = f"y[{i}](0)"
+                            help_text = f"Initial condition for y[{i}]"
+                        
                             # Use stable key and preserve existing values
                             current_value = 0.0
                             if i < len(st.session_state.initial_conditions):
@@ -1355,7 +1355,7 @@ with tab2:
                                 key=f"manual_ic_{i}_{job_key}", 
                                 help=help_text
                             )
-                            initial_conditions.append(ic)
+                        initial_conditions.append(ic)
                 
                 elif ic_method == "Use First Data Values":
                     # Automatically use first values from mapped datasets
@@ -1975,8 +1975,8 @@ initial_guess = {
                     if any(w != 1.0 for w in tab3_dataset_weights.values()):
                         weights_info = ", ".join([f"{name}: {weight}" for name, weight in tab3_dataset_weights.items() if weight != 1.0])
                         st.info(f"⚖️ **Custom dataset weights:** {weights_info}")
-            else:
-                st.warning("Please upload datasets and define your ODE system first to use mODEl's fitting capabilities.")
+    else:
+        st.warning("Please upload datasets and define your ODE system first to use mODEl's fitting capabilities.")
 
 # Tab 4: Enhanced Results
 with tab4:
@@ -2335,13 +2335,13 @@ def ode_system(y, t, {', '.join(param_names)}):
                         
                         for i in range(n_bootstrap_samples):
                             try:
-                                # Create bootstrap datasets
-                                bootstrap_datasets = {}
-                                
+                            # Create bootstrap datasets
+                            bootstrap_datasets = {}
+                            
                                 if bootstrap_method == "Residual Resampling":
                                     # Resample residuals
                                     for dataset_name, data in st.session_state.datasets.items():
-                                        var_idx = st.session_state.dataset_mapping[dataset_name]
+                                    var_idx = st.session_state.dataset_mapping[dataset_name]
                                         model_vals = np.interp(data['time'], t_data, sol_orig[:, var_idx])
                                         
                                         # Resample residuals
@@ -2353,8 +2353,8 @@ def ode_system(y, t, {', '.join(param_names)}):
                                         
                                         # Create new bootstrap data
                                         bootstrap_values = model_vals + resampled_residuals
-                                        bootstrap_datasets[dataset_name] = pd.DataFrame({
-                                            'time': data['time'],
+                                bootstrap_datasets[dataset_name] = pd.DataFrame({
+                                    'time': data['time'],
                                             'value': bootstrap_values
                                         })
                                 
@@ -2409,7 +2409,7 @@ def ode_system(y, t, {', '.join(param_names)}):
                                                 bounds=bounds)
                                 
                                 if result.success:
-                                    bootstrap_params.append(result.x)
+                            bootstrap_params.append(result.x)
                                     
                                     # Log progress every 10 samples
                                     if (i + 1) % 10 == 0 or i == 0:
@@ -2451,11 +2451,11 @@ def ode_system(y, t, {', '.join(param_names)}):
                                 values = [bp[i] for bp in bootstrap_params]
                                 
                                 # Calculate confidence intervals
-                                alpha = (100 - confidence_level) / 100
+                        alpha = (100 - confidence_level) / 100
                                 ci_lower = np.percentile(values, 100 * alpha / 2)
                                 ci_upper = np.percentile(values, 100 * (1 - alpha / 2))
-                                
-                                bootstrap_stats[param] = {
+                        
+                            bootstrap_stats[param] = {
                                     'values': values,
                                     'mean': np.mean(values),
                                     'std': np.std(values),
@@ -2464,10 +2464,10 @@ def ode_system(y, t, {', '.join(param_names)}):
                                 }
                             
                             # Store results
-                            st.session_state.bootstrap_results = {
-                                'n_samples': n_bootstrap_samples,
+                        st.session_state.bootstrap_results = {
+                            'n_samples': n_bootstrap_samples,
                                 'method': bootstrap_method,
-                                'confidence_level': confidence_level,
+                            'confidence_level': confidence_level,
                                 'successful_samples': len(bootstrap_params),
                                 'stats': bootstrap_stats
                             }
@@ -2477,7 +2477,7 @@ def ode_system(y, t, {', '.join(param_names)}):
                         
                         else:
                             st.error("❌ Bootstrap analysis failed - no successful samples")
-                    
+                        
                     except Exception as e:
                         st.error(f"❌ Bootstrap analysis error: {str(e)}")
                         st.exception(e)

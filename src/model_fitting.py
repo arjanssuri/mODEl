@@ -1,0 +1,234 @@
+"""
+mODEl Model Fitting Module
+Contains all model fitting functionality, ODE processing, and optimization routines
+"""
+
+import streamlit as st
+import numpy as np
+import pandas as pd
+from scipy.integrate import odeint
+from scipy.optimize import minimize
+from typing import Dict, List, Tuple, Optional
+import re
+
+
+def create_ode_function(param_names: List[str], ode_code: str):
+    """Create an ODE function from code string"""
+    # Properly indent the user's ODE code
+    lines = ode_code.strip().split('\n')
+    indented_lines = []
+    for line in lines:
+        if line.strip():  # Only indent non-empty lines
+            indented_lines.append('    ' + line.strip())
+        else:
+            indented_lines.append('')
+    
+    indented_code = '\n'.join(indented_lines)
+    
+    func_code = f"""
+def ode_system(y, t, {', '.join(param_names)}):
+{indented_code}
+"""
+    exec(func_code, globals())
+    return globals()['ode_system']
+
+
+def detect_state_variables(ode_code: str) -> Tuple[int, List[str]]:
+    """Detect the number of state variables from ODE code"""
+    lines = ode_code.strip().split('\n')
+    max_y_index = -1
+    unpacked_vars = []
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Check for variable unpacking (e.g., "T, R, I, V, F = y")
+        if '= y' in line and not line.startswith('#'):
+            # Extract variable names before = y
+            var_part = line.split('= y')[0].strip()
+            # Remove any comments
+            var_part = var_part.split('#')[0].strip()
+            # Split by comma and clean up
+            if ',' in var_part:
+                unpacked_vars = [v.strip() for v in var_part.split(',')]
+                return len(unpacked_vars), unpacked_vars
+        
+        # Check for y[i] indexing
+        y_indices = re.findall(r'y\[(\d+)\]', line)
+        for idx_str in y_indices:
+            idx = int(idx_str)
+            max_y_index = max(max_y_index, idx)
+    
+    # If we found y[i] indices, return max_index + 1
+    if max_y_index >= 0:
+        return max_y_index + 1, []
+    
+    # If no clear detection, return 1 as default
+    return 1, []
+
+
+def extract_parameter_names(ode_code: str, var_names: List[str]) -> List[str]:
+    """Extract parameter names from ODE code"""
+    param_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b'
+    all_names = re.findall(param_pattern, ode_code)
+    
+    # Filter out common Python keywords, variables, and detected variable names
+    exclude = {'y', 'dydt', 'return', 'def', 'if', 'else', 'for', 'while', 'in', 'and', 'or', 'not', 't', 'N', 
+              'dTdt', 'dRdt', 'dIdt', 'dVdt', 'dFdt', 'T', 'R', 'I', 'V', 'F', 'dxdt', 'dx', 'dt'}
+    exclude.update(var_names)  # Add detected variable names to exclusion
+    
+    param_names = list(set(all_names) - exclude)
+    return sorted(param_names)
+
+
+def validate_model_setup() -> Tuple[bool, List[str]]:
+    """Validate that model is ready for fitting"""
+    missing_items = []
+    
+    if not st.session_state.param_names:
+        missing_items.append("Define ODE system and parameters")
+    
+    if not st.session_state.datasets:
+        missing_items.append("Upload datasets")
+    
+    if not st.session_state.initial_conditions:
+        missing_items.append("Set initial conditions")
+    
+    if not st.session_state.dataset_mapping:
+        missing_items.append("Map datasets to state variables")
+    
+    return len(missing_items) == 0, missing_items
+
+
+def run_model_fitting() -> bool:
+    """Run model fitting with current settings - callable from anywhere"""
+    
+    # Validation checks
+    is_ready, missing_items = validate_model_setup()
+    if not is_ready:
+        for item in missing_items:
+            st.error(f"❌ {item}")
+        return False
+    
+    # Get current bounds and initial guesses
+    bounds = {}
+    initial_guesses = {}
+    
+    # Use parsed bounds if available, otherwise create default bounds
+    if hasattr(st.session_state, 'parsed_bounds') and st.session_state.parsed_bounds:
+        bounds = st.session_state.parsed_bounds
+        initial_guesses = st.session_state.parsed_initial_guesses
+    else:
+        # Create default bounds around reasonable values
+        for param in st.session_state.param_names:
+            bounds[param] = (1e-6, 10.0)
+            initial_guesses[param] = 1.0
+    
+    # Default dataset weights
+    dataset_weights = {name: 1.0 for name in st.session_state.datasets.keys()}
+    
+    try:
+        with st.spinner("🚀 Running mODEl model fitting..."):
+            # Create ODE function
+            ode_func = create_ode_function(st.session_state.param_names, st.session_state.ode_system)
+            
+            # Test ODE function
+            test_params = [initial_guesses[param] for param in st.session_state.param_names]
+            test_result = ode_func(st.session_state.initial_conditions, 0, *test_params)
+            
+            if len(test_result) != len(st.session_state.initial_conditions):
+                st.error(f"❌ ODE system mismatch: Your ODE returns {len(test_result)} derivatives but you have {len(st.session_state.initial_conditions)} initial conditions.")
+                return False
+            
+            # Prepare all datasets
+            all_times = []
+            for data in st.session_state.datasets.values():
+                all_times.extend(data['time'].values)
+            
+            # Get unique sorted time points
+            unique_times = sorted(set(all_times))
+            t_data = np.array(unique_times)
+            
+            # Multi-objective optimization function
+            def objective(params):
+                try:
+                    # Solve ODE
+                    sol = odeint(ode_func, st.session_state.initial_conditions, t_data, 
+                               args=tuple(params))
+                    
+                    total_ssr = 0
+                    for dataset_name, data in st.session_state.datasets.items():
+                        var_idx = st.session_state.dataset_mapping[dataset_name]
+                        
+                        # Interpolate model solution to data time points
+                        model_vals = np.interp(data['time'], t_data, sol[:, var_idx])
+                        
+                        # Calculate error
+                        if st.session_state.optimization_settings['use_relative_error']:
+                            error = ((model_vals - data['value']) / (np.abs(data['value']) + 1e-10))**2
+                        else:
+                            error = (model_vals - data['value'])**2
+                        
+                        # Weight by dataset
+                        ssr = np.sum(error) * dataset_weights[dataset_name]
+                        total_ssr += ssr
+                    
+                    return total_ssr
+                except:
+                    return 1e12
+            
+            # Setup optimization
+            opt_bounds = [bounds[param] for param in st.session_state.param_names]
+            x0 = [initial_guesses[param] for param in st.session_state.param_names]
+            
+            # Run optimization
+            if st.session_state.optimization_settings['multi_start']:
+                best_result = None
+                best_cost = np.inf
+                
+                for i in range(st.session_state.optimization_settings['n_starts']):
+                    # Random initial point
+                    x0_random = []
+                    for (low, high) in opt_bounds:
+                        if np.isfinite(low) and np.isfinite(high):
+                            x0_random.append(np.random.uniform(low, high))
+                        else:
+                            x0_random.append(np.random.lognormal(0, 1))
+                    
+                    result = minimize(objective, x0_random, method=st.session_state.optimization_settings['method'], 
+                                    bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
+                    
+                    if result.fun < best_cost:
+                        best_result = result
+                        best_cost = result.fun
+                
+                result = best_result
+            else:
+                result = minimize(objective, x0, method=st.session_state.optimization_settings['method'], 
+                                bounds=opt_bounds, options={'maxiter': st.session_state.optimization_settings['max_iter']})
+            
+            # Store results
+            st.session_state.fit_results = {
+                'params': dict(zip(st.session_state.param_names, result.x)),
+                'cost': result.fun,
+                'success': result.success,
+                'message': result.message,
+                'result_obj': result,
+                'dataset_weights': dataset_weights,
+                'fitting_options': {
+                    'use_relative_error': st.session_state.optimization_settings['use_relative_error'],
+                    'use_log_transform': False,
+                    'normalize_by_initial': False
+                }
+            }
+            
+            # Success message with parameter summary
+            param_summary = ", ".join([f"{param}={value:.3e}" for param, value in st.session_state.fit_results['params'].items()])
+            st.success(f"✅ mODEl fitting completed! Cost: {result.fun:.3e}")
+            st.info(f"📊 **Fitted Parameters:** {param_summary}")
+            
+            return True
+    
+    except Exception as e:
+        st.error(f"❌ Model fitting error: {str(e)}")
+        return False 
