@@ -17,6 +17,50 @@ from model_fitting import create_ode_function
 import io
 
 
+def calculate_adaptive_bins(data, method="Auto (Adaptive)"):
+    """Calculate optimal number of bins for histogram based on different methods"""
+    n = len(data)
+    
+    if method == "Sturges":
+        # Sturges' rule: k = ceil(log2(n) + 1)
+        bins = int(np.ceil(np.log2(n) + 1))
+    elif method == "Scott":
+        # Scott's rule: h = 3.5 * std(data) / n^(1/3)
+        h = 3.5 * np.std(data) / (n**(1/3))
+        bins = int(np.ceil((np.max(data) - np.min(data)) / h))
+    elif method == "Freedman-Diaconis":
+        # Freedman-Diaconis rule: h = 2 * IQR / n^(1/3)
+        q75, q25 = np.percentile(data, [75, 25])
+        iqr = q75 - q25
+        if iqr > 0:
+            h = 2 * iqr / (n**(1/3))
+            bins = int(np.ceil((np.max(data) - np.min(data)) / h))
+        else:
+            bins = 10  # fallback
+    elif method == "Rice":
+        # Rice rule: k = 2 * n^(1/3)
+        bins = int(np.ceil(2 * (n**(1/3))))
+    else:  # Auto (Adaptive)
+        # Use numpy's auto method which chooses the best from several methods
+        bins = 'auto'
+    
+    # Ensure reasonable bounds
+    if isinstance(bins, int):
+        bins = max(5, min(bins, 100))  # Between 5 and 100 bins
+    
+    return bins
+
+
+def format_bin_info(data, bins_used):
+    """Format information about the bins used"""
+    if isinstance(bins_used, str):
+        return f"Auto-selected optimal bins"
+    else:
+        range_val = np.max(data) - np.min(data)
+        bin_width = range_val / bins_used if bins_used > 0 else 0
+        return f"{bins_used} bins (width: {bin_width:.3e})"
+
+
 def render_bootstrap_analysis_tab():
     """Render the Bootstrap Analysis tab content"""
     st.header("mODEl Bootstrap Analysis for Parameter Uncertainty")
@@ -71,6 +115,21 @@ def render_bootstrap_analysis_tab():
             show_detailed_logs = st.checkbox("Show Parameter Values in Log", 
                                             value=True,
                                             help="Display parameter values for each logged sample")
+            
+            # Histogram binning settings
+            st.subheader("📊 Distribution Plot Settings")
+            bin_method = st.selectbox("Histogram Binning Method", 
+                                    ["Auto (Adaptive)", "Sturges", "Scott", "Freedman-Diaconis", "Rice", "Fixed (20 bins)"],
+                                    index=0,
+                                    help="Method for determining optimal number of histogram bins")
+            
+            if bin_method == "Fixed (20 bins)":
+                custom_bins = st.number_input("Number of Bins", 
+                                            value=20, min_value=5, max_value=100,
+                                            help="Fixed number of bins for histograms")
+            else:
+                st.info(f"**{bin_method}**: Automatically determines optimal bin count based on data distribution")
+                custom_bins = None
             
             # Update session state with current selections
             st.session_state.bootstrap_settings['n_samples'] = n_bootstrap_samples
@@ -529,6 +588,12 @@ def render_bootstrap_analysis_tab():
                     
                     values = st.session_state.bootstrap_results['stats'][param]['values']
                     
+                    # Determine bins based on selected method
+                    if bin_method == "Fixed (20 bins)":
+                        bins_used = custom_bins
+                    else:
+                        bins_used = calculate_adaptive_bins(values, bin_method)
+                    
                     # Add histogram
                     fig.add_trace(
                         go.Histogram(
@@ -536,13 +601,15 @@ def render_bootstrap_analysis_tab():
                             name=f'{param} Distribution',
                             marker_color='skyblue',
                             opacity=0.7,
-                            showlegend=False
+                            showlegend=False,
+                            nbinsx=bins_used if isinstance(bins_used, int) else None,
+                            autobinx=True if bins_used == 'auto' else False
                         ),
                         row=row, col=col
                     )
                     
                     # Add vertical lines for statistics
-                    y_max = np.histogram(values, bins=20)[0].max()
+                    y_max = np.histogram(values, bins=bins_used)[0].max()
                     
                     # Original estimate
                     fig.add_trace(
@@ -576,11 +643,35 @@ def render_bootstrap_analysis_tab():
                 
                 fig.update_layout(
                     height=400*rows,
-                    title_text="Parameter Distribution Analysis",
+                    title_text=f"Parameter Distribution Analysis - {bin_method} Binning",
                     template='plotly_white'
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # Display binning information
+                with st.expander("📊 Binning Information"):
+                    st.markdown("**Adaptive Binning Results:**")
+                    for param in st.session_state.param_names:
+                        values = st.session_state.bootstrap_results['stats'][param]['values']
+                        if bin_method == "Fixed (20 bins)":
+                            bins_info = f"{custom_bins} bins (fixed)"
+                        else:
+                            bins_used = calculate_adaptive_bins(values, bin_method)
+                            bins_info = format_bin_info(values, bins_used)
+                        st.markdown(f"- **{param}**: {bins_info}")
+                    
+                    st.info(f"**Method**: {bin_method}")
+                    if bin_method != "Fixed (20 bins)":
+                        method_descriptions = {
+                            "Auto (Adaptive)": "NumPy's automatic method - selects optimal approach based on data",
+                            "Sturges": "k = ceil(log₂(n) + 1) - Good for normal distributions",
+                            "Scott": "Based on data standard deviation - Good for smooth distributions", 
+                            "Freedman-Diaconis": "Based on interquartile range - Robust to outliers",
+                            "Rice": "k = 2 × n^(1/3) - Simple cube root rule"
+                        }
+                        if bin_method in method_descriptions:
+                            st.markdown(f"**Description**: {method_descriptions[bin_method]}")
                 
             else:
                 # Use matplotlib for parameter distribution plots
@@ -602,7 +693,18 @@ def render_bootstrap_analysis_tab():
                         ax = axes[row, col] if cols > 1 else axes[row]
                     
                     values = st.session_state.bootstrap_results['stats'][param]['values']
-                    ax.hist(values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+                    
+                    # Determine bins based on selected method
+                    if bin_method == "Fixed (20 bins)":
+                        bins_used = custom_bins
+                    else:
+                        bins_used = calculate_adaptive_bins(values, bin_method)
+                    
+                    n_hist, bins_hist, patches = ax.hist(values, bins=bins_used, alpha=0.7, color='skyblue', edgecolor='black')
+                    
+                    # Add bin count to title
+                    actual_bins = len(bins_hist) - 1 if hasattr(bins_hist, '__len__') else bins_used
+                    ax.set_title(f'{param} ({actual_bins} bins)')
                     
                     # Add vertical lines for statistics
                     ax.axvline(st.session_state.fit_results['params'][param], 
@@ -614,7 +716,6 @@ def render_bootstrap_analysis_tab():
                     ax.axvline(st.session_state.bootstrap_results['stats'][param]['ci_upper'], 
                               color='orange', linestyle=':', linewidth=2)
                     
-                    ax.set_title(f'{param}')
                     ax.set_xlabel('Parameter Value')
                     ax.set_ylabel('Frequency')
                     if i == 0:
@@ -623,7 +724,15 @@ def render_bootstrap_analysis_tab():
                 # Remove empty subplots
                 for i in range(n_params, rows * cols):
                     row, col = i // cols, i % cols
-                    fig.delaxes(axes[row, col] if cols > 1 else axes[row])
+                    if rows == 1:
+                        if cols > 1:
+                            fig.delaxes(axes[col])
+                    else:
+                        if cols > 1:
+                            fig.delaxes(axes[row, col])
+                        else:
+                            fig.delaxes(axes[row])
                 
+                plt.suptitle(f"Parameter Distribution Analysis - {bin_method} Binning")
                 plt.tight_layout()
                 st.pyplot(fig) 
