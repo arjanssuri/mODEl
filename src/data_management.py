@@ -10,28 +10,26 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
 
+def read_uploaded_file(uploaded_file) -> pd.DataFrame:
+    """Read uploaded file with automatic delimiter detection using cache"""
+    from utils import process_uploaded_data
+    
+    # Get file content for caching
+    file_content = uploaded_file.read()
+    uploaded_file.seek(0)  # Reset file pointer for other operations
+    
+    # Use cached processing
+    return process_uploaded_data(file_content, uploaded_file.name)
+
+
 def validate_data_file(data: pd.DataFrame) -> Tuple[bool, str, str, str]:
-    """Validate uploaded data file and find time/value columns"""
-    # Clean column names (remove extra whitespace)
-    data.columns = data.columns.str.strip()
+    """Validate uploaded data file and find time/value columns using cache"""
+    from utils import validate_and_clean_data
     
-    # Check for required columns (case insensitive)
-    time_col = None
-    value_col = None
+    # Use cached validation
+    is_valid, time_col, value_col, cleaned_data = validate_and_clean_data(data)
     
-    # Find time column
-    for col in data.columns:
-        if col.lower() in ['time', 't', 'times']:
-            time_col = col
-            break
-    
-    # Find value column
-    for col in data.columns:
-        if col.lower() in ['value', 'val', 'values', 'concentration', 'conc', 'amount']:
-            value_col = col
-            break
-    
-    if time_col is None or value_col is None:
+    if not is_valid:
         return False, "", "", f"Data must have 'time' and 'value' columns. Found columns: {', '.join(data.columns)}"
     
     return True, time_col, value_col, ""
@@ -60,28 +58,6 @@ def process_data_file(data: pd.DataFrame, time_col: str, value_col: str) -> Tupl
         mapping_info = f"Column mapping: '{time_col}' → time, '{value_col}' → value"
     
     return data, mapping_info
-
-
-def read_uploaded_file(uploaded_file) -> pd.DataFrame:
-    """Read uploaded file with automatic delimiter detection"""
-    if uploaded_file.name.endswith('.csv'):
-        return pd.read_csv(uploaded_file)
-    else:
-        # Try different delimiters for TXT files
-        content = uploaded_file.read().decode('utf-8')
-        uploaded_file.seek(0)  # Reset file pointer
-        
-        # Detect delimiter
-        if '\t' in content:
-            return pd.read_csv(uploaded_file, delimiter='\t')
-        elif ',' in content:
-            return pd.read_csv(uploaded_file, delimiter=',')
-        elif ';' in content:
-            return pd.read_csv(uploaded_file, delimiter=';')
-        elif ' ' in content:
-            return pd.read_csv(uploaded_file, delimiter=r'\s+', engine='python')
-        else:
-            return pd.read_csv(uploaded_file, delimiter='\t')
 
 
 def upload_individual_file_ui():
@@ -116,16 +92,60 @@ def upload_individual_file_ui():
                     st.error(error_msg)
                     st.info("Acceptable column names:\n- Time: 'time', 't', 'times'\n- Value: 'value', 'val', 'values', 'concentration', 'conc', 'amount'")
                 else:
+                    # Show data preview before processing
+                    with st.expander("📊 Data Preview"):
+                        st.write(f"**File:** {uploaded_file.name}")
+                        st.write(f"**Columns found:** {', '.join(data.columns)}")
+                        st.write(f"**Detected time column:** {time_col}")
+                        st.write(f"**Detected value column:** {value_col}")
+                        st.write(f"**Number of rows:** {len(data)}")
+                        
+                        # Show first few rows
+                        st.write("**First 5 rows:**")
+                        st.dataframe(data.head(), use_container_width=True)
+                        
+                        # Show basic statistics
+                        if time_col in data.columns and value_col in data.columns:
+                            st.write("**Basic Statistics:**")
+                            col_stats1, col_stats2 = st.columns(2)
+                            with col_stats1:
+                                st.write(f"**{time_col} (Time):**")
+                                try:
+                                    time_vals = pd.to_numeric(data[time_col], errors='coerce')
+                                    st.write(f"- Range: {time_vals.min():.3f} to {time_vals.max():.3f}")
+                                    st.write(f"- Points: {len(time_vals.dropna())}")
+                                except:
+                                    st.write("- Could not parse as numeric")
+                            
+                            with col_stats2:
+                                st.write(f"**{value_col} (Value):**")
+                                try:
+                                    value_vals = pd.to_numeric(data[value_col], errors='coerce')
+                                    st.write(f"- Range: {value_vals.min():.3f} to {value_vals.max():.3f}")
+                                    st.write(f"- Mean: {value_vals.mean():.3f}")
+                                except:
+                                    st.write("- Could not parse as numeric")
+                    
                     processed_data, mapping_info = process_data_file(data, time_col, value_col)
                     
                     if len(processed_data) == 0:
                         st.error("No valid data rows found after cleaning")
                     else:
-                        st.session_state.datasets[dataset_name] = processed_data
-                        st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(processed_data)} data points)")
+                        # Show processing results
+                        col_result1, col_result2 = st.columns(2)
+                        with col_result1:
+                            if st.button(f"✅ Load Dataset '{dataset_name}'", type="primary"):
+                                st.session_state.datasets[dataset_name] = processed_data
+                                st.success(f"✅ Dataset '{dataset_name}' loaded successfully! ({len(processed_data)} data points)")
+                                
+                                if mapping_info:
+                                    st.info(mapping_info)
+                                st.rerun()
                         
-                        if mapping_info:
-                            st.info(mapping_info)
+                        with col_result2:
+                            st.info(f"**Ready to load:** {len(processed_data)} clean data points")
+                            if mapping_info:
+                                st.caption(mapping_info)
                     
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
@@ -133,21 +153,43 @@ def upload_individual_file_ui():
         
         # Remove dataset button
         if st.session_state.datasets:
+            st.markdown("---")
+            st.subheader("🗑️ Remove Dataset")
             dataset_to_remove = st.selectbox("Remove Dataset", [""] + list(st.session_state.datasets.keys()))
             if dataset_to_remove and st.button("Remove Selected Dataset"):
                 del st.session_state.datasets[dataset_to_remove]
+                # Also remove from dataset mapping if it exists
+                if dataset_to_remove in st.session_state.dataset_mapping:
+                    del st.session_state.dataset_mapping[dataset_to_remove]
+                st.success(f"Removed dataset '{dataset_to_remove}'")
                 st.rerun()
     
     with col2:
         if st.session_state.datasets:
-            st.subheader("Loaded Datasets")
+            st.subheader("📁 Loaded Datasets")
             for name, data in st.session_state.datasets.items():
-                st.info(f"""
-                **{name}**
-                - Rows: {len(data)}
-                - Time range: {data['time'].min():.2f} - {data['time'].max():.2f}
-                - Value range: {data['value'].min():.2f} - {data['value'].max():.2f}
-                """)
+                with st.expander(f"**{name}**"):
+                    st.info(f"""
+                    - **Rows:** {len(data)}
+                    - **Time range:** {data['time'].min():.3f} - {data['time'].max():.3f}
+                    - **Value range:** {data['value'].min():.3f} - {data['value'].max():.3f}
+                    - **Mean value:** {data['value'].mean():.3f}
+                    """)
+                    
+                    # Show mini plot
+                    try:
+                        import plotly.express as px
+                        fig = px.scatter(data, x='time', y='value', 
+                                       title=f"{name} Data Preview",
+                                       height=200)
+                        fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
+                        st.plotly_chart(fig, use_container_width=True)
+                    except:
+                        # Fallback to basic stats if plotly fails
+                        st.write("**Sample data points:**")
+                        st.dataframe(data.head(3), use_container_width=True)
+        else:
+            st.info("**No datasets loaded yet**\n\nUpload your experimental data files to get started with mODEl analysis.")
 
 
 def organize_batch_files(uploaded_files, job_organization: str) -> Dict[str, List]:

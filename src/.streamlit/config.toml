@@ -1,0 +1,31 @@
+[global]
+# Development mode settings
+developmentMode = false
+
+[server]
+# Enable session state persistence
+enableCORS = false
+enableXsrfProtection = true
+maxUploadSize = 200
+maxMessageSize = 200
+
+[browser]
+# Gather usage stats
+gatherUsageStats = false
+
+[runner]
+# Enable caching optimizations
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true
+
+[client]
+# Show error details
+showErrorDetails = true
+
+[theme]
+# Use default theme
+primaryColor = "#0066CC"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730" 

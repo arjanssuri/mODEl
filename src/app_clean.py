@@ -18,7 +18,10 @@ import io
 from datetime import datetime
 
 # Import our custom modules
-from utils import initialize_session_state, get_completion_status
+from utils import (
+    initialize_session_state, get_completion_status, invalidate_cache_if_needed,
+    display_cache_status, save_session_to_browser_storage, restore_session_from_browser_storage
+)
 from model_fitting import (
     run_model_fitting, detect_state_variables, extract_parameter_names, 
     create_ode_function
@@ -33,15 +36,20 @@ from ode_definition import render_ode_definition_tab
 from parameter_fitting import render_parameter_fitting_tab
 from results_analysis import render_results_analysis_tab
 from bootstrap_analysis import render_bootstrap_analysis_tab
+from model_library import (
+    render_model_library_ui, get_model_library_quick_load, 
+    load_saved_model, load_saved_bounds
+)
 
 # Set page configuration
 st.set_page_config(
     page_title="mODEl - ODE Model Fitting by Dobrovolny Lab TCU",
     page_icon="🧮",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS and JavaScript
+# Custom CSS and JavaScript with enhanced form handling
 st.markdown("""
 <style>
     .stTabs [data-baseweb="tab-list"] {
@@ -109,11 +117,16 @@ st.markdown("""
         font-size: 11px;
         font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     }
+    /* Prevent Enter key from causing navigation issues */
+    input[type="text"], input[type="number"], textarea {
+        outline: none !important;
+    }
 </style>
 
 <script>
-// Keyboard shortcut for model fitting (Cmd + . or Ctrl + .)
+// Enhanced keyboard handling to prevent unwanted navigation
 document.addEventListener('keydown', function(event) {
+    // Handle Cmd/Ctrl + . for model fitting
     if ((event.metaKey || event.ctrlKey) && event.key === '.') {
         event.preventDefault();
         
@@ -153,22 +166,68 @@ document.addEventListener('keydown', function(event) {
         
         return false;
     }
+    
+    // Prevent Enter key from causing unwanted form submissions or navigation
+    if (event.key === 'Enter') {
+        const target = event.target;
+        const tagName = target.tagName.toLowerCase();
+        
+        // Allow Enter in textareas and specific buttons
+        if (tagName === 'textarea' || 
+            (tagName === 'button' && target.type === 'submit') ||
+            target.classList.contains('allow-enter')) {
+            return true;
+        }
+        
+        // Prevent Enter in text inputs, number inputs, and other form elements
+        if (tagName === 'input' || tagName === 'select') {
+            event.preventDefault();
+            // Optionally blur the field to remove focus
+            target.blur();
+            return false;
+        }
+    }
+});
+
+// Additional form handling to prevent unwanted submissions
+document.addEventListener('DOMContentLoaded', function() {
+    // Disable default form submission behavior
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            // Only allow submission if explicitly allowed
+            if (!form.classList.contains('allow-submit')) {
+                e.preventDefault();
+                return false;
+            }
+        });
+    });
 });
 </script>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state and restore from browser storage
+restore_session_from_browser_storage()
 initialize_session_state()
+
+# Check for cache invalidation
+invalidate_cache_if_needed()
+
+# Save session state to browser storage periodically
+save_session_to_browser_storage()
 
 # Title and description
 st.title("🧮 mODEl: Advanced ODE Model Fitting")
 st.markdown("**by Dobrovolny Lab, Texas Christian University**")
 st.markdown("""
 **mODEl** provides comprehensive ODE modeling capabilities including:
-- Multi-dataset upload and fitting
+- Multi-dataset upload and fitting with **automatic data caching** 💾
+- **Save/Load ODE models and parameter bounds** 📚
 - Bootstrap analysis for parameter uncertainty
 - Advanced visualization and result export
 - Support for complex multi-variable systems
+- **Session persistence** - your work is automatically saved across page refreshes! 🔄
+- **Smart initial condition detection** based on dataset mapping 🎯
 
 *Developed by the Dobrovolny Laboratory at Texas Christian University for mathematical modeling in biological systems.*
 """)
@@ -183,32 +242,72 @@ tab_labels = [
     f"📊 Model Fitting{'✅' if completion['model_fitting'] else ''}",
     f"📈 Results{'✅' if completion['results'] else ''}",
     f"🎯 Bootstrap Analysis{'✅' if completion['bootstrap'] else ''}",
-    "📚 Examples"
+    "📚 Model Library",
+    "📝 Examples"
 ]
 
 # Main content area with tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_labels)
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(tab_labels)
 
 # Sidebar for configuration and quick actions
 with st.sidebar:
     st.header("⚙️ Configuration")
     
+    # Display cache status for debugging
+    display_cache_status()
+    
+    # Model Library Quick Actions
+    st.subheader("📚 Quick Load")
+    quick_options = get_model_library_quick_load()
+    
+    if quick_options.get('models'):
+        st.markdown("**Quick Load Model:**")
+        quick_model = st.selectbox(
+            "Select model:",
+            [""] + quick_options['models'],
+            key="sidebar_quick_model"
+        )
+        
+        if quick_model and st.button("🔄 Load Model", key="sidebar_load_model"):
+            if load_saved_model(quick_model):
+                st.success(f"✅ Loaded model: {quick_model}")
+                st.rerun()
+    
+    if quick_options.get('bounds'):
+        st.markdown("**Quick Load Bounds:**")
+        quick_bounds = st.selectbox(
+            "Select bounds:",
+            [""] + quick_options['bounds'],
+            key="sidebar_quick_bounds"
+        )
+        
+        if quick_bounds and st.button("🔄 Load Bounds", key="sidebar_load_bounds"):
+            if load_saved_bounds(quick_bounds):
+                st.success(f"✅ Loaded bounds: {quick_bounds}")
+                st.rerun()
+    
+    if not quick_options.get('models') and not quick_options.get('bounds'):
+        st.info("💡 Save models and bounds in the Model Library tab for quick access here!")
+    
     # Optimization settings
+    st.subheader("🔧 Optimization Settings")
     opt_method = st.selectbox(
         "Optimization Method",
         ["L-BFGS-B", "Nelder-Mead", "SLSQP", "Powell", "TNC", "Differential Evolution"],
         index=["L-BFGS-B", "Nelder-Mead", "SLSQP", "Powell", "TNC", "Differential Evolution"].index(st.session_state.optimization_settings['method']),
-        help="Select the optimization algorithm for parameter fitting"
+        help="Select the optimization algorithm for parameter fitting",
+        key="sidebar_opt_method"
     )
     st.session_state.optimization_settings['method'] = opt_method
     
     # Convergence settings
-    st.subheader("Convergence Settings")
+    st.markdown("**Convergence Settings**")
     tol = st.number_input(
         "Tolerance", 
         value=st.session_state.optimization_settings['tolerance'], 
         format="%.2e", 
-        help="Convergence tolerance"
+        help="Convergence tolerance",
+        key="sidebar_tolerance"
     )
     st.session_state.optimization_settings['tolerance'] = tol
     
@@ -216,22 +315,25 @@ with st.sidebar:
         "Max Iterations", 
         value=st.session_state.optimization_settings['max_iter'], 
         min_value=100, 
-        step=100
+        step=100,
+        key="sidebar_max_iter"
     )
     st.session_state.optimization_settings['max_iter'] = max_iter
     
     # Advanced options
-    st.subheader("Advanced Options")
+    st.markdown("**Advanced Options**")
     use_relative_error = st.checkbox(
         "Use Relative Error", 
         value=st.session_state.optimization_settings['use_relative_error'], 
-        help="Use relative error instead of absolute error"
+        help="Use relative error instead of absolute error",
+        key="sidebar_relative_error"
     )
     st.session_state.optimization_settings['use_relative_error'] = use_relative_error
     
     multi_start = st.checkbox(
         "Multi-start Optimization", 
-        value=st.session_state.optimization_settings['multi_start']
+        value=st.session_state.optimization_settings['multi_start'],
+        key="sidebar_multi_start"
     )
     st.session_state.optimization_settings['multi_start'] = multi_start
     
@@ -240,28 +342,32 @@ with st.sidebar:
             "Number of starts", 
             value=st.session_state.optimization_settings['n_starts'], 
             min_value=2, 
-            max_value=100
+            max_value=100,
+            key="sidebar_n_starts"
         )
         st.session_state.optimization_settings['n_starts'] = n_starts
     
     # Visualization settings
-    st.subheader("Visualization Settings")
+    st.subheader("🎨 Visualization Settings")
     plot_style = st.selectbox(
         "Plot Style", 
         ["plotly", "seaborn"],
-        index=["plotly", "seaborn"].index(st.session_state.visualization_settings['plot_style'])
+        index=["plotly", "seaborn"].index(st.session_state.visualization_settings['plot_style']),
+        key="sidebar_plot_style"
     )
     st.session_state.visualization_settings['plot_style'] = plot_style
     
     show_phase_portrait = st.checkbox(
         "Show Phase Portrait (2D systems)", 
-        value=st.session_state.visualization_settings['show_phase_portrait']
+        value=st.session_state.visualization_settings['show_phase_portrait'],
+        key="sidebar_phase_portrait"
     )
     st.session_state.visualization_settings['show_phase_portrait'] = show_phase_portrait
     
     show_distributions = st.checkbox(
         "Show Parameter Distributions", 
-        value=st.session_state.visualization_settings['show_distributions']
+        value=st.session_state.visualization_settings['show_distributions'],
+        key="sidebar_distributions"
     )
     st.session_state.visualization_settings['show_distributions'] = show_distributions
     
@@ -289,6 +395,13 @@ with st.sidebar:
     st.subheader("Overall Progress")
     st.progress(progress_percentage / 100)
     st.markdown(f"**{completed_steps}/{total_steps} steps completed ({progress_percentage:.0f}%)**")
+    
+    # Data persistence indicator
+    if len(st.session_state.datasets) > 0 or st.session_state.fit_results or st.session_state.bootstrap_results:
+        st.success("💾 **Data Cached** - Your work is automatically saved!")
+        st.info("🔄 Data persists across page refreshes")
+    else:
+        st.info("💡 Upload data to enable automatic caching")
     
     # Quick Model Fitting from Sidebar
     st.markdown("---")
@@ -350,7 +463,8 @@ with tab1:
     upload_method = st.radio(
         "Choose upload method:",
         ["Individual Files", "Batch Folder Upload"],
-        help="Upload individual files or process multiple files as batch jobs"
+        help="Upload individual files or process multiple files as batch jobs",
+        key="upload_method_radio"
     )
     
     if upload_method == "Individual Files":
@@ -370,7 +484,8 @@ with tab1:
             "Choose multiple files (txt or csv)",
             type=['txt', 'csv'],
             accept_multiple_files=True,
-            help="Upload multiple data files to create batch jobs for analysis in mODEl"
+            help="Upload multiple data files to create batch jobs for analysis in mODEl",
+            key="batch_files_uploader"
         )
         
         if uploaded_files:
@@ -383,7 +498,8 @@ with tab1:
                 job_organization = st.radio(
                     "How to organize files into jobs:",
                     ["Create separate job for each file", "Group by filename prefix", "Group all files into one job"],
-                    help="Choose how to organize the uploaded files into modeling jobs"
+                    help="Choose how to organize the uploaded files into modeling jobs",
+                    key="job_organization_radio"
                 )
                 
                 # Organize files and display structure
@@ -398,7 +514,7 @@ with tab1:
             with col2:
                 st.subheader("Process Batch Jobs")
                 
-                if st.button("🚀 Create Batch Jobs", type="primary"):
+                if st.button("🚀 Create Batch Jobs", type="primary", key="create_batch_jobs"):
                     jobs_created, jobs_failed = process_batch_files(organized_jobs)
                     
                     if jobs_created > 0:
@@ -421,7 +537,8 @@ with tab1:
                 selected_job = st.selectbox(
                     "Select job to work on:",
                     [""] + job_names,
-                    help="Select a batch job to work on. This will load its datasets into the main workspace."
+                    help="Select a batch job to work on. This will load its datasets into the main workspace.",
+                    key="batch_job_selector"
                 )
                 
                 if selected_job:
@@ -439,13 +556,13 @@ with tab1:
                     col_load, col_delete = st.columns(2)
                     
                     with col_load:
-                        if st.button(f"🔄 Load Job '{selected_job}'", type="primary"):
+                        if st.button(f"🔄 Load Job '{selected_job}'", type="primary", key=f"load_job_{selected_job}"):
                             if load_job_into_workspace(selected_job):
                                 st.success(f"✅ Loaded job '{selected_job}' with all advanced analytics settings!")
                                 st.rerun()
                     
                     with col_delete:
-                        if st.button(f"🗑️ Delete Job", key=f"delete_{selected_job}"):
+                        if st.button(f"🗑️ Delete Job", key=f"delete_job_{selected_job}"):
                             del st.session_state.batch_jobs[selected_job]
                             if st.session_state.active_job == selected_job:
                                 st.session_state.active_job = None
@@ -456,7 +573,7 @@ with tab1:
                 if st.session_state.active_job:
                     st.info(f"**Active Job:** {st.session_state.active_job}")
                     
-                    if st.button("💾 Save Current State to Job"):
+                    if st.button("💾 Save Current State to Job", key="save_workspace_to_job"):
                         if save_workspace_to_job():
                             st.success(f"✅ Saved current state with all advanced settings to job '{st.session_state.active_job}'")
                 else:
@@ -470,13 +587,14 @@ with tab1:
                 st.dataframe(summary_df, use_container_width=True)
                 
                 # Export jobs summary
-                if st.button("📥 Export Jobs Summary"):
+                if st.button("📥 Export Jobs Summary", key="export_jobs_summary"):
                     csv_data = export_jobs_summary()
                     st.download_button(
                         label="Download Jobs Summary CSV",
                         data=csv_data,
                         file_name=f"mODEl_batch_jobs_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
+                        mime="text/csv",
+                        key="download_jobs_summary"
                     )
 
 # Tab 2: ODE Definition
@@ -495,7 +613,12 @@ with tab4:
 with tab5:
     render_bootstrap_analysis_tab()
 
+# Tab 6: Model Library
 with tab6:
+    render_model_library_ui()
+
+# Tab 7: Examples
+with tab7:
     st.header("📚 ODE System Examples")
     st.markdown("Explore common ODE systems and their applications.")
     
@@ -510,6 +633,13 @@ with tab6:
                 bounds_str = "\n".join([f"- {p}: [{example['bounds'][p][0]}, {example['bounds'][p][1]}]" 
                                       for p in example['parameters']])
                 st.markdown(f"**Typical Parameter Ranges:**\n{bounds_str}")
+            
+            # Quick load button for examples
+            if st.button(f"🔄 Load {name}", key=f"load_example_{name}"):
+                st.session_state.ode_system = example['code']
+                st.session_state.param_names = example['parameters']
+                st.success(f"✅ Loaded example: {name}")
+                st.info("💡 Navigate to the ODE Definition tab to see the loaded system!")
 
 # Footer
 st.markdown("---")
