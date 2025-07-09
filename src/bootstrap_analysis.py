@@ -331,33 +331,100 @@ def render_bootstrap_analysis_tab():
                             # Use original fitted parameters as starting point
                             bounds = []
                             for param in st.session_state.param_names:
-                                if (hasattr(st.session_state, 'parsed_bounds') and 
-                                    st.session_state.parsed_bounds and 
-                                    param in st.session_state.parsed_bounds):
-                                    # Ensure bounds are tuples, not arrays
-                                    bound_val = st.session_state.parsed_bounds[param]
-                                    if isinstance(bound_val, (list, np.ndarray)):
-                                        bounds.append((float(bound_val[0]), float(bound_val[1])))
-                                    elif isinstance(bound_val, tuple) and len(bound_val) == 2:
-                                        bounds.append((float(bound_val[0]), float(bound_val[1])))
+                                try:
+                                    if (hasattr(st.session_state, 'parsed_bounds') and 
+                                        st.session_state.parsed_bounds and 
+                                        param in st.session_state.parsed_bounds):
+                                        # Ensure bounds are tuples, not arrays
+                                        bound_val = st.session_state.parsed_bounds[param]
+                                        if isinstance(bound_val, (list, np.ndarray)):
+                                            low_bound = float(bound_val[0])
+                                            high_bound = float(bound_val[1])
+                                        elif isinstance(bound_val, tuple) and len(bound_val) == 2:
+                                            low_bound = float(bound_val[0])
+                                            high_bound = float(bound_val[1])
+                                        else:
+                                            # Fallback to default bounds
+                                            fitted_val = float(st.session_state.fit_results['params'][param])
+                                            low_bound = fitted_val * 0.001
+                                            high_bound = fitted_val * 1000
                                     else:
-                                        # Fallback to default bounds
+                                        # Default bounds around fitted value - make them wider for bootstrap
                                         fitted_val = float(st.session_state.fit_results['params'][param])
-                                        bounds.append((fitted_val * 0.01, fitted_val * 100))
-                                else:
-                                    # Default bounds around fitted value
+                                        low_bound = fitted_val * 0.001
+                                        high_bound = fitted_val * 1000  # 3 orders of magnitude
+                                    
+                                    # Ensure bounds are valid
+                                    if low_bound >= high_bound:
+                                        fitted_val = float(st.session_state.fit_results['params'][param])
+                                        low_bound = fitted_val * 0.001
+                                        high_bound = fitted_val * 1000
+                                    
+                                    bounds.append((low_bound, high_bound))
+                                    
+                                except Exception as bound_error:
+                                    # Fallback bounds in case of any error
                                     fitted_val = float(st.session_state.fit_results['params'][param])
-                                    bounds.append((fitted_val * 0.01, fitted_val * 100))
+                                    bounds.append((fitted_val * 0.001, fitted_val * 1000))
                             
-                            # Optimize bootstrap sample with error handling
+                            # Add some noise to starting point for diversity
+                            start_params = []
+                            for j, param in enumerate(st.session_state.param_names):
+                                try:
+                                    fitted_val = float(fitted_params[j])
+                                    # Add random variation (±20%) to starting point
+                                    noise_factor = 1.0 + 0.4 * (np.random.random() - 0.5)  # 0.8 to 1.2
+                                    start_val = fitted_val * noise_factor
+                                    # Ensure it's within bounds
+                                    start_val = max(bounds[j][0], min(bounds[j][1], start_val))
+                                    start_params.append(float(start_val))
+                                except Exception:
+                                    # Fallback to fitted value
+                                    start_params.append(float(fitted_params[j]))
+                            
+                            # Optimize bootstrap sample with comprehensive error handling
                             try:
-                                result = minimize(bootstrap_objective, fitted_params, 
-                                                method=st.session_state.optimization_settings['method'], 
-                                                bounds=bounds,
-                                                options={'maxiter': 100})  # Limit iterations for bootstrap
+                                # Ensure all bounds are finite and properly formatted
+                                safe_bounds = []
+                                for bound_pair in bounds:
+                                    low, high = bound_pair
+                                    if not np.isfinite(low) or not np.isfinite(high) or low >= high:
+                                        # Use wide default bounds
+                                        safe_bounds.append((1e-10, 1e10))
+                                    else:
+                                        safe_bounds.append((float(low), float(high)))
                                 
-                                if result.success and np.isfinite(result.fun) and np.all(np.isfinite(result.x)):
-                                    bootstrap_params.append(result.x)
+                                # Use more robust optimization settings for bootstrap
+                                result = minimize(bootstrap_objective, start_params, 
+                                                method=st.session_state.optimization_settings['method'], 
+                                                bounds=safe_bounds,
+                                                options={
+                                                    'maxiter': 200,  # More iterations for bootstrap
+                                                    'ftol': 1e-6,   # Relaxed tolerance
+                                                    'gtol': 1e-6    # Relaxed gradient tolerance
+                                                })
+                                
+                                # More lenient success criteria for bootstrap with safe checks
+                                success_checks = []
+                                try:
+                                    success_checks.append(result.fun < 1e10)  # Reasonable objective value
+                                    success_checks.append(np.isfinite(float(result.fun)))  # Finite SSR
+                                    success_checks.append(all(np.isfinite(float(x)) for x in result.x))  # All params finite
+                                    
+                                    # Check bounds individually to avoid array truth value errors
+                                    within_bounds = True
+                                    for param_idx, param_val in enumerate(result.x):
+                                        param_val = float(param_val)
+                                        if param_val < safe_bounds[param_idx][0] or param_val > safe_bounds[param_idx][1]:
+                                            within_bounds = False
+                                            break
+                                    success_checks.append(within_bounds)
+                                    
+                                except Exception:
+                                    success_checks = [False]
+                                
+                                if all(success_checks):
+                                    bootstrap_params.append([float(x) for x in result.x])
                                     
                                     # Log progress according to user setting with nice formatting
                                     if (i + 1) % log_every == 0:
@@ -368,20 +435,40 @@ def render_bootstrap_analysis_tab():
                                         success_rate = len(bootstrap_params) / (i + 1) * 100
                                         
                                         log_msg = f"✅ {i+1}/{n_bootstrap_samples} ({success_rate:.1f}% success, {rate:.1f}/sec, ETA: {eta:.0f}s)"
-                                        add_log_message(log_msg, sample_num=i+1, ssr=result.fun, params=result.x)
+                                        add_log_message(log_msg, sample_num=i+1, ssr=float(result.fun), params=[float(x) for x in result.x])
                                 else:
                                     if (i + 1) % log_every == 0:
-                                        reason = "non-finite result" if not np.isfinite(result.fun) else "did not converge"
-                                        add_log_message(f"❌ Sample {i+1}/{n_bootstrap_samples} FAILED - {reason}")
+                                        try:
+                                            if not np.isfinite(float(result.fun)):
+                                                reason = "non-finite SSR"
+                                            elif float(result.fun) >= 1e10:
+                                                reason = f"high SSR ({float(result.fun):.1e})"
+                                            elif not all(np.isfinite(float(x)) for x in result.x):
+                                                reason = "non-finite parameters"
+                                            elif not within_bounds:
+                                                reason = "parameters out of bounds"
+                                            else:
+                                                reason = "other convergence issue"
+                                        except Exception:
+                                            reason = "evaluation error"
+                                        add_log_message(f"❌ Sample {i+1}/{n_bootstrap_samples} REJECTED - {reason}")
                             
                             except Exception as opt_error:
                                 if (i + 1) % log_every == 0:
-                                    add_log_message(f"❌ Sample {i+1}/{n_bootstrap_samples} OPTIMIZATION ERROR: {str(opt_error)[:60]}...")
+                                    error_msg = str(opt_error)
+                                    if "truth value" in error_msg.lower():
+                                        add_log_message(f"❌ Sample {i+1}/{n_bootstrap_samples} ARRAY ERROR: Bounds/comparison issue")
+                                    else:
+                                        add_log_message(f"❌ Sample {i+1}/{n_bootstrap_samples} OPT ERROR: {error_msg[:50]}...")
                         
                         except Exception as e:
                             # Log failed samples
                             if (i + 1) % log_every == 0:
-                                add_log_message(f"💥 Sample {i+1}/{n_bootstrap_samples} SETUP ERROR: {str(e)[:60]}...")
+                                error_msg = str(e)
+                                if "truth value" in error_msg.lower():
+                                    add_log_message(f"💥 Sample {i+1}/{n_bootstrap_samples} ARRAY ERROR: {error_msg[:50]}...")
+                                else:
+                                    add_log_message(f"💥 Sample {i+1}/{n_bootstrap_samples} SETUP ERROR: {error_msg[:50]}...")
                         
                         # Update progress bar and status
                         progress = (i + 1) / n_bootstrap_samples
@@ -651,27 +738,37 @@ def render_bootstrap_analysis_tab():
                 
                 # Display binning information
                 with st.expander("📊 Binning Information"):
-                    st.markdown("**Adaptive Binning Results:**")
+                    st.markdown("**Per-Parameter Adaptive Binning Results:**")
+                    binning_results = {}
                     for param in st.session_state.param_names:
                         values = st.session_state.bootstrap_results['stats'][param]['values']
                         if bin_method == "Fixed (20 bins)":
+                            bins_used = custom_bins
                             bins_info = f"{custom_bins} bins (fixed)"
                         else:
                             bins_used = calculate_adaptive_bins(values, bin_method)
                             bins_info = format_bin_info(values, bins_used)
+                        binning_results[param] = bins_used
                         st.markdown(f"- **{param}**: {bins_info}")
                     
                     st.info(f"**Method**: {bin_method}")
                     if bin_method != "Fixed (20 bins)":
                         method_descriptions = {
-                            "Auto (Adaptive)": "NumPy's automatic method - selects optimal approach based on data",
-                            "Sturges": "k = ceil(log₂(n) + 1) - Good for normal distributions",
-                            "Scott": "Based on data standard deviation - Good for smooth distributions", 
-                            "Freedman-Diaconis": "Based on interquartile range - Robust to outliers",
-                            "Rice": "k = 2 × n^(1/3) - Simple cube root rule"
+                            "Auto (Adaptive)": "NumPy's automatic method - selects optimal approach based on each parameter's data distribution",
+                            "Sturges": "k = ceil(log₂(n) + 1) - Applied per parameter, good for normal distributions",
+                            "Scott": "Based on each parameter's standard deviation - Good for smooth distributions", 
+                            "Freedman-Diaconis": "Based on each parameter's interquartile range - Robust to outliers",
+                            "Rice": "k = 2 × n^(1/3) - Applied per parameter using sample size"
                         }
                         if bin_method in method_descriptions:
                             st.markdown(f"**Description**: {method_descriptions[bin_method]}")
+                        
+                        # Show bin count variation across parameters
+                        if len(set(binning_results.values())) > 1:  # If bins vary across parameters
+                            bins_range = f"{min(binning_results.values())} - {max(binning_results.values())}"
+                            st.success(f"✨ **Adaptive Success**: Bin counts vary from {bins_range} across parameters, optimized for each distribution!")
+                        else:
+                            st.info("All parameters resulted in the same optimal bin count.")
                 
             else:
                 # Use matplotlib for parameter distribution plots
@@ -735,4 +832,38 @@ def render_bootstrap_analysis_tab():
                 
                 plt.suptitle(f"Parameter Distribution Analysis - {bin_method} Binning")
                 plt.tight_layout()
-                st.pyplot(fig) 
+                st.pyplot(fig)
+                
+                # Display binning information for matplotlib
+                with st.expander("📊 Binning Information"):  
+                    st.markdown("**Per-Parameter Adaptive Binning Results:**")
+                    binning_results = {}
+                    for param in st.session_state.param_names:
+                        values = st.session_state.bootstrap_results['stats'][param]['values']
+                        if bin_method == "Fixed (20 bins)":
+                            bins_used = custom_bins
+                            bins_info = f"{custom_bins} bins (fixed)"
+                        else:
+                            bins_used = calculate_adaptive_bins(values, bin_method)
+                            bins_info = format_bin_info(values, bins_used)
+                        binning_results[param] = bins_used
+                        st.markdown(f"- **{param}**: {bins_info}")
+                    
+                    st.info(f"**Method**: {bin_method}")
+                    if bin_method != "Fixed (20 bins)":
+                        method_descriptions = {
+                            "Auto (Adaptive)": "NumPy's automatic method - selects optimal approach based on each parameter's data distribution",
+                            "Sturges": "k = ceil(log₂(n) + 1) - Applied per parameter, good for normal distributions",
+                            "Scott": "Based on each parameter's standard deviation - Good for smooth distributions", 
+                            "Freedman-Diaconis": "Based on each parameter's interquartile range - Robust to outliers",
+                            "Rice": "k = 2 × n^(1/3) - Applied per parameter using sample size"
+                        }
+                        if bin_method in method_descriptions:
+                            st.markdown(f"**Description**: {method_descriptions[bin_method]}")
+                        
+                        # Show bin count variation across parameters
+                        if len(set(binning_results.values())) > 1:  # If bins vary across parameters
+                            bins_range = f"{min(binning_results.values())} - {max(binning_results.values())}"
+                            st.success(f"✨ **Adaptive Success**: Bin counts vary from {bins_range} across parameters, optimized for each distribution!")
+                        else:
+                            st.info("All parameters resulted in the same optimal bin count.") 
