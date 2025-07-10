@@ -38,7 +38,7 @@ A comprehensive Streamlit application for fitting ordinary differential equation
 ```
 mODEl/
 ├── src/                     # Application source code
-│   ├── app.py              # Main Streamlit application
+│   ├── app_clean.py         # Main Streamlit application
 │   ├── ode_examples.py     # Built-in ODE examples and helper functions
 │   └── run_app.sh          # Local run script
 ├── examples/               # Sample datasets and documentation
@@ -53,8 +53,7 @@ mODEl/
 │   └── prey_sample.txt            # Predator-prey - prey population
 ├── requirements.txt        # Python dependencies
 ├── run_model.sh           # Main launcher script
-├── README.md              # This file
-└── QUICK_START.md         # Quick start guide
+└── README.md              # This file
 ```
 
 ## 🛠️ Installation & Setup
@@ -87,7 +86,7 @@ pip install -r requirements.txt
 
 # Run from src directory
 cd src
-streamlit run app.py
+streamlit run app_clean.py
 ```
 
 ### Option 4: Custom Network Configuration
@@ -275,7 +274,7 @@ Located in the `examples/` directory:
 
 ### Network Deployment Issues
 
-**Problem**: `FileNotFoundError: [Errno 2] No such file or directory: 'app.py'` when running on IP address
+**Problem**: `FileNotFoundError: [Errno 2] No such file or directory: 'app_clean.py'` when running on IP address
 
 **Solution**: Use the provided network launcher scripts:
 ```bash
@@ -342,10 +341,6 @@ Built with:
 2. **Batch Processing**: Try uploading multiple files to see the job management features
 3. **Smart Initial Conditions**: Test the automatic initial condition setting with your data
 4. **Advanced Features**: Explore bootstrap analysis and multi-start optimization
-5. **Network Deployment**: See `NETWORK_DEPLOYMENT.md` for running mODEl on a network
-6. **Enhanced Batch Jobs**: See `BATCH_JOBS_FEATURES.md` for comprehensive batch processing with advanced analytics
-
-**For detailed instructions, see `QUICK_START.md`**
 
 ---
 

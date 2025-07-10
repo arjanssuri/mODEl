@@ -89,4 +89,4 @@ echo "🌐 mODEl will be available at: http://$(echo $SERVER_ARGS | grep -o '[0-
 echo "🔒 Make sure your firewall allows connections on this port"
 echo ""
 
-streamlit run app.py $SERVER_ARGS $ADDITIONAL_ARGS 
+streamlit run app_clean.py $SERVER_ARGS $ADDITIONAL_ARGS 

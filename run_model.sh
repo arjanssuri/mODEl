@@ -25,9 +25,9 @@ cd src
 if [ $# -eq 0 ]; then
     # Default: run on localhost
     echo "🌐 Running on localhost (default)"
-    streamlit run app.py
+    streamlit run app_clean.py
 else
     # Pass all arguments to streamlit (for IP binding, port configuration, etc.)
     echo "🌐 Running with custom configuration: $*"
-    streamlit run app.py "$@"
+    streamlit run app_clean.py "$@"
 fi 
